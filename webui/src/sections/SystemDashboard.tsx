@@ -22,7 +22,6 @@ export default function SystemDashboard() {
   const [until, setUntil] = useState("");
   const [maxEvents, setMaxEvents] = useState(50);
   const [tab, setTab] = useState<SystemTab>("overview");
-  const [isCapturing, setIsCapturing] = useState(false);
   const [rangePreset, setRangePreset] = useState<RangePreset>("6h");
   const [customSinceDate, setCustomSinceDate] = useState("");
   const [customSinceTime, setCustomSinceTime] = useState("00:00");
@@ -144,18 +143,6 @@ export default function SystemDashboard() {
     { key: "services", label: "Services", icon: <Server size={16} /> }
   ];
 
-  const captureScreenshot = async () => {
-    setIsCapturing(true);
-    try {
-      const result = await api<{ path: string }>("/api/system/screenshot", {
-        method: "POST"
-      });
-      alert(`Screenshot saved to ${result.path}`);
-    } finally {
-      setIsCapturing(false);
-    }
-  };
-
   return (
     <section className="space-y-4">
       <div className="flex items-center justify-between">
@@ -171,9 +158,6 @@ export default function SystemDashboard() {
             </button>
           ))}
         </div>
-        <button className="btn-outline" onClick={captureScreenshot} disabled={isCapturing}>
-          {isCapturing ? "Capturing…" : "Take Screenshot"}
-        </button>
       </div>
 
       {tab === "overview" && (

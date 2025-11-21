@@ -140,9 +140,9 @@ export default function FileExplorer() {
   // New State for Refactor
   const { t } = useTranslation();
   const [sortConfig, setSortConfig] = useState<{ key: 'name' | 'size' | 'date'; direction: 'asc' | 'desc' }>({ key: 'name', direction: 'asc' });
-  const [topPanelHeight, setTopPanelHeight] = useState(() => {
-    const saved = localStorage.getItem('weasel.layout.topPanelHeight');
-    return saved ? parseInt(saved) : 150;
+  const [leftPanelWidth, setLeftPanelWidth] = useState(() => {
+    const saved = localStorage.getItem('weasel.layout.leftPanelWidth');
+    return saved ? parseInt(saved) : 33; // Default to 33% (1/3)
   });
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileSystemItem } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -739,29 +739,27 @@ export default function FileExplorer() {
     return () => clearInterval(intervalId);
   }, [isTailing, tailFile]);
 
-  // Resizing Logic
+  // Resizing Logic (horizontal)
   const startResizing = useCallback(() => {
     setIsResizing(true);
   }, []);
 
   const stopResizing = useCallback(() => {
     setIsResizing(false);
-    localStorage.setItem('weasel.layout.topPanelHeight', topPanelHeight.toString());
-  }, [topPanelHeight]);
+    localStorage.setItem('weasel.layout.leftPanelWidth', leftPanelWidth.toString());
+  }, [leftPanelWidth]);
 
-  // We need a ref for the container to calculate relative Y
+  // We need a ref for the container to calculate relative X
   const containerRef = useRef<HTMLDivElement>(null);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!isResizing || !containerRef.current) return;
     const containerRect = containerRef.current.getBoundingClientRect();
-    const newHeight = e.clientY - containerRect.top;
-    // Ensure directories panel is at least 100px and files panel gets at least 300px
-    const minFilesHeight = 300;
-    const maxDirHeight = containerRect.height - minFilesHeight;
-    if (newHeight >= 100 && newHeight <= maxDirHeight) {
-      setTopPanelHeight(newHeight);
-      localStorage.setItem('weasel.layout.topPanelHeight', newHeight.toString());
+    const newWidthPercent = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+    // Ensure left panel is at least 20% and right panel gets at least 30%
+    if (newWidthPercent >= 20 && newWidthPercent <= 70) {
+      setLeftPanelWidth(newWidthPercent);
+      localStorage.setItem('weasel.layout.leftPanelWidth', newWidthPercent.toString());
     }
   }, [isResizing]);
 
@@ -1010,9 +1008,9 @@ export default function FileExplorer() {
         </div>
       </div>
 
-      <div ref={containerRef} className="flex flex-col" style={{ height: 'calc(100vh - 140px)', minHeight: '1200px' }}>
-        {/* Directories Panel */}
-        <div className="panel flex flex-col overflow-hidden flex-shrink-0" style={{ height: topPanelHeight, minHeight: 100 }}>
+      <div ref={containerRef} className="flex flex-row gap-2" style={{ height: 'calc(100vh - 140px)', minHeight: '600px' }}>
+        {/* Folders Panel (Left - 1/3) */}
+        <div className="panel flex flex-col overflow-hidden" style={{ width: `${leftPanelWidth}%`, minWidth: '250px' }}>
           <div className="flex items-center justify-between mb-2 flex-shrink-0">
             <h3 className="panel-title mb-0">{t("files.directories")}</h3>
             <div className="flex items-center gap-4 text-xs text-slate-400">
@@ -1077,14 +1075,14 @@ export default function FileExplorer() {
 
         {/* Resizer */}
         <div
-          className="h-2 cursor-row-resize bg-slate-900 hover:bg-sky-500/50 transition-colors flex items-center justify-center z-10 flex-shrink-0 my-1 rounded"
+          className="w-2 cursor-col-resize bg-slate-900 hover:bg-sky-500/50 transition-colors flex items-center justify-center z-10 flex-shrink-0 rounded"
           onMouseDown={startResizing}
         >
-          <div className="w-8 h-1 bg-slate-600 rounded-full" />
+          <div className="h-8 w-1 bg-slate-600 rounded-full" />
         </div>
 
-        {/* Files Panel */}
-        <div className="panel flex-1 flex flex-col overflow-hidden" style={{ minHeight: '500px' }}>
+        {/* Files Panel (Right - 2/3) */}
+        <div className="panel flex-1 flex flex-col overflow-hidden" style={{ minWidth: '400px' }}>
           <div className="flex items-center justify-between mb-2 flex-shrink-0">
             <h3 className="panel-title mb-0">{t("files.files")}</h3>
             <div className="flex items-center gap-4 text-xs text-slate-400">

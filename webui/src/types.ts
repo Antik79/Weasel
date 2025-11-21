@@ -92,6 +92,22 @@ export interface PackageShowResponse {
   alternatives: PackageSearchResult[];
 }
 
+export interface BundlePackage {
+  id: string;
+  name: string;
+  version?: string | null;
+  publisher?: string | null;
+}
+
+export interface PackageBundle {
+  id: string;
+  name: string;
+  description: string;
+  packages: BundlePackage[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProcessInfo {
   id: number;
   name: string;

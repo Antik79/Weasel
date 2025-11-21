@@ -88,6 +88,40 @@ public static class Program
             app.UseStaticFiles();
         }
 
+        // Authentication middleware - must be after static files but before API routes
+        var security = app.Services.GetRequiredService<IOptionsMonitor<WeaselHostOptions>>().CurrentValue.Security;
+        if (security.RequireAuthentication && !string.IsNullOrWhiteSpace(security.Password))
+        {
+            app.Use(async (context, next) =>
+            {
+                // Exclude static files, health check, favicon, and the main page from authentication
+                // This allows the login page to be displayed
+                var path = context.Request.Path.Value ?? "";
+                if (path.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase) ||
+                    path == "/health" ||
+                    path == "/favicon.ico" ||
+                    path == "/favicon.png" ||
+                    path == "/" ||
+                    path.StartsWith("/index.html", StringComparison.OrdinalIgnoreCase))
+                {
+                    await next();
+                    return;
+                }
+
+                // For all other routes (especially API routes), require authentication
+                if (!context.Request.Headers.TryGetValue(AuthHeaderName, out var headerValue) ||
+                    string.IsNullOrWhiteSpace(headerValue) ||
+                    !TokensMatch(headerValue!, security.Password!))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    await context.Response.WriteAsync("Authentication required.");
+                    return;
+                }
+
+                await next();
+            });
+        }
+
         var api = app.MapGroup("/api");
 
         var system = api.MapGroup("/system");
@@ -173,9 +207,11 @@ public static class Program
         fs.MapGet("/content", async (string path, IFileSystemService fss, CancellationToken ct) =>
         {
             using var stream = await fss.OpenReadAsync(path, ct);
-            using var reader = new StreamReader(stream);
+            using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
             var content = await reader.ReadToEndAsync(ct);
-            return Results.Ok(content);
+            // Normalize line endings to \n for consistent display in Monaco Editor
+            content = content.Replace("\r\n", "\n").Replace("\r", "\n");
+            return Results.Text(content, "text/plain; charset=utf-8");
         });
         fs.MapPost("/upload", async (HttpRequest request, IFileSystemService fss, CancellationToken ct) => 
         {
@@ -204,13 +240,17 @@ public static class Program
         });
         fs.MapPost("/file", async (FileWriteRequest req, IFileSystemService fss, CancellationToken ct) =>
         {
-            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(req.Content));
+            // Normalize line endings to Windows format (\r\n) when saving
+            var normalizedContent = req.Content.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", Environment.NewLine);
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(normalizedContent));
             await fss.SaveFileAsync(req.Path, stream, true, ct);
             return Results.Ok();
         });
         fs.MapPost("/write", async (FileWriteRequest req, IFileSystemService fss, CancellationToken ct) =>
         {
-            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(req.Content));
+            // Normalize line endings to Windows format (\r\n) when saving
+            var normalizedContent = req.Content.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", Environment.NewLine);
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(normalizedContent));
             await fss.SaveFileAsync(req.Path, stream, true, ct);
             return Results.Ok();
         });
@@ -278,6 +318,7 @@ public static class Program
         MapProcessEndpoints(api.MapGroup("/processes"));
         MapServiceEndpoints(api.MapGroup("/services"));
         MapPackageEndpoints(api.MapGroup("/packages"));
+        MapPackageBundleEndpoints(api.MapGroup("/packages/bundles"));
         MapSettingsEndpoints(api.MapGroup("/settings"));
         MapLogEndpoints(api.MapGroup("/logs"));
         MapDiskMonitoringEndpoints(api.MapGroup("/disk-monitoring"));
@@ -386,6 +427,68 @@ public static class Program
             catch (OperationCanceledException)
             {
                 return Results.StatusCode(408); // Request Timeout
+            }
+        });
+    }
+
+    private static void MapPackageBundleEndpoints(RouteGroupBuilder group)
+    {
+        group.MapGet("/", async (IPackageBundleService bundleService, CancellationToken cancellationToken) =>
+        {
+            var bundles = await bundleService.GetAllBundlesAsync(cancellationToken);
+            return Results.Ok(bundles);
+        });
+
+        group.MapGet("/{bundleId}", async (string bundleId, IPackageBundleService bundleService, CancellationToken cancellationToken) =>
+        {
+            var bundle = await bundleService.GetBundleAsync(bundleId, cancellationToken);
+            if (bundle == null)
+            {
+                return Results.NotFound();
+            }
+            return Results.Ok(bundle);
+        });
+
+        group.MapPost("/", async (CreateBundleRequest req, IPackageBundleService bundleService, CancellationToken cancellationToken) =>
+        {
+            var bundle = await bundleService.CreateBundleAsync(req.Name, req.Description ?? "", cancellationToken);
+            return Results.Ok(bundle);
+        });
+
+        group.MapPut("/{bundleId}", async (string bundleId, UpdateBundleRequest req, IPackageBundleService bundleService, CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                List<WeaselHost.Core.Models.BundlePackage>? packages = null;
+                if (req.Packages != null)
+                {
+                    packages = req.Packages.Select(p => new WeaselHost.Core.Models.BundlePackage(p.Id, p.Name, p.Version, p.Publisher)).ToList();
+                }
+                var bundle = await bundleService.UpdateBundleAsync(bundleId, req.Name, req.Description, packages, cancellationToken);
+                return Results.Ok(bundle);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
+            }
+        });
+
+        group.MapDelete("/{bundleId}", async (string bundleId, IPackageBundleService bundleService, CancellationToken cancellationToken) =>
+        {
+            await bundleService.DeleteBundleAsync(bundleId, cancellationToken);
+            return Results.Ok();
+        });
+
+        group.MapPost("/{bundleId}/install", async (string bundleId, IPackageBundleService bundleService, IPackageService packageService, CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var results = await bundleService.InstallBundleAsync(bundleId, packageService, cancellationToken);
+                return Results.Ok(results);
+            }
+            catch (KeyNotFoundException)
+            {
+                return Results.NotFound();
             }
         });
     }
@@ -584,6 +687,12 @@ public static class Program
     private record UnzipRequest(string ZipFilePath, string DestinationPath);
 
     private record BulkDownloadRequest(List<string> Paths);
+
+    private record CreateBundleRequest(string Name, string? Description);
+
+    private record UpdateBundleRequest(string? Name, string? Description, List<BundlePackageRequest>? Packages);
+
+    private record BundlePackageRequest(string Id, string Name, string? Version, string? Publisher);
 
     private record DirectoryRequest(string ParentPath, string Name);
 

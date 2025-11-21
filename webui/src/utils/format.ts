@@ -18,7 +18,8 @@ export function formatDate(value: string) {
  */
 export function formatPath(path: string): string {
   if (!path) return path;
-  // Replace double backslashes with single backslashes
+  // Replace double backslashes (\\ in string = single backslash) with single backslash
+  // The regex \\\\ matches two literal backslashes in the string
   return path.replace(/\\\\/g, "\\");
 }
 

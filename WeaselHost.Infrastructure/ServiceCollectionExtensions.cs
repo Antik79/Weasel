@@ -11,6 +11,7 @@ public static class ServiceCollectionExtensions
     {
         services.AddSingleton<IFileSystemService, FileSystemService>();
         services.AddSingleton<IPackageService, PackageService>();
+        services.AddSingleton<IPackageBundleService, PackageBundleService>();
         services.AddSingleton<ISystemInfoService, SystemInfoService>();
         services.AddSingleton<IPowerService, PowerService>();
         services.AddSingleton<IProcessService, ProcessService>();

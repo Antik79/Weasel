@@ -314,7 +314,11 @@ export default function Settings() {
                   <input
                     className="flex-1 bg-slate-900 border border-slate-800 rounded px-3 py-2 text-sm text-white"
                     value={formatPath(captureForm.folder)}
-                    onChange={(e) => setCaptureForm({ ...captureForm, folder: e.target.value })}
+                    onChange={(e) => {
+                      // Normalize path by removing double backslashes
+                      const normalized = e.target.value.replace(/\\\\/g, '\\');
+                      setCaptureForm({ ...captureForm, folder: normalized });
+                    }}
                   />
                   <button className="btn-outline" type="button" onClick={() => setShowPicker(true)}>
                     <FolderOpen size={16} />
@@ -326,7 +330,9 @@ export default function Settings() {
                 <FolderPicker
                   initialPath={captureForm.folder}
                   onSelect={(path) => {
-                    setCaptureForm({ ...captureForm, folder: path });
+                    // Normalize path by removing double backslashes
+                    const normalized = path.replace(/\\\\/g, '\\');
+                    setCaptureForm({ ...captureForm, folder: normalized });
                     setShowPicker(false);
                   }}
                   onCancel={() => setShowPicker(false)}
@@ -555,7 +561,11 @@ function LoggingSettingsTab() {
               <input
                 className="input-text flex-1"
                 value={formatPath(loggingForm.folder)}
-                onChange={(e) => setLoggingForm({ ...loggingForm, folder: e.target.value })}
+                onChange={(e) => {
+                  // Normalize path by removing double backslashes
+                  const normalized = e.target.value.replace(/\\\\/g, '\\');
+                  setLoggingForm({ ...loggingForm, folder: normalized });
+                }}
               />
               <button className="btn-outline" type="button" onClick={() => setShowLoggingPicker(true)}>
                 <FolderOpen size={16} />
@@ -655,7 +665,9 @@ function LoggingSettingsTab() {
         <FolderPicker
           initialPath={loggingForm.folder}
           onSelect={(path) => {
-            setLoggingForm({ ...loggingForm, folder: path });
+            // Normalize path by removing double backslashes
+            const normalized = path.replace(/\\\\/g, '\\');
+            setLoggingForm({ ...loggingForm, folder: normalized });
             setShowLoggingPicker(false);
           }}
           onCancel={() => setShowLoggingPicker(false)}

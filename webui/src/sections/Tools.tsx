@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import useSWR from "swr";
-import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock } from "lucide-react";
+import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square } from "lucide-react";
 import { api, download } from "../api/client";
 import { FileSystemItem, CaptureSettings, LogsResponse, LogFileInfo, DiskMonitoringConfig, DiskMonitoringStatus, DriveAlertStatus, DriveMonitorConfig, FolderMonitorOptions, ProcessInfo, ApplicationMonitorConfig, MonitoredApplication } from "../types";
 import { formatBytes, formatDate, formatPath } from "../utils/format";
@@ -35,6 +35,7 @@ export default function Tools() {
   const [preview, setPreview] = useState<{ path: string; url: string } | null>(null);
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [isSavingCapture, setIsSavingCapture] = useState(false);
+  const [selectedScreenshots, setSelectedScreenshots] = useState<Set<string>>(new Set());
 
   const { data: captureSettings, mutate: mutateCapture } = useSWR("capture-settings", captureFetcher);
   const folder = captureSettings?.folder ?? "";
@@ -80,7 +81,10 @@ export default function Tools() {
   const { data: logContent, isLoading: logContentLoading } = useSWR(
     selectedLog ? ["log", selectedLog] : null,
     ([, fileName]: [string, string]) => api<string>(`/api/logs/${encodeURIComponent(fileName)}`),
-    { revalidateOnFocus: false }
+    { 
+      revalidateOnFocus: true,
+      refreshInterval: 2000 // Auto-refresh every 2 seconds for tailing
+    }
   );
 
   useEffect(() => {
@@ -110,7 +114,97 @@ export default function Tools() {
       URL.revokeObjectURL(preview.url);
       setPreview(null);
     }
+    setSelectedScreenshots(prev => {
+      const next = new Set(prev);
+      next.delete(file.fullPath);
+      return next;
+    });
     await mutate?.();
+  };
+
+  const toggleScreenshotSelection = (fullPath: string) => {
+    setSelectedScreenshots(prev => {
+      const next = new Set(prev);
+      if (next.has(fullPath)) {
+        next.delete(fullPath);
+      } else {
+        next.add(fullPath);
+      }
+      return next;
+    });
+  };
+
+  const selectAllScreenshots = () => {
+    setSelectedScreenshots(new Set(images.map(img => img.fullPath)));
+  };
+
+  const clearScreenshotSelection = () => {
+    setSelectedScreenshots(new Set());
+  };
+
+  const downloadSelectedScreenshots = async () => {
+    if (selectedScreenshots.size === 0) return;
+    
+    try {
+      const paths = Array.from(selectedScreenshots);
+      const csrfToken = localStorage.getItem("weasel.csrf") || "local";
+      const authToken = localStorage.getItem("weasel.auth.token");
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "X-Weasel-Csrf": csrfToken
+      };
+      if (authToken) {
+        headers["X-Weasel-Token"] = authToken;
+      }
+      
+      const response = await fetch("/api/fs/download/bulk", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ paths })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `screenshots_${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      
+      setSelectedScreenshots(new Set());
+    } catch (err) {
+      alert(`Failed to download screenshots: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const deleteSelectedScreenshots = async () => {
+    if (selectedScreenshots.size === 0) return;
+    
+    const count = selectedScreenshots.size;
+    if (!window.confirm(`Delete ${count} screenshot${count > 1 ? 's' : ''}?`)) return;
+    
+    try {
+      const paths = Array.from(selectedScreenshots);
+      for (const path of paths) {
+        const url = new URL("/api/fs", window.location.origin);
+        url.searchParams.set("path", path);
+        await api(url.toString(), { method: "DELETE" });
+        if (preview?.path === path) {
+          URL.revokeObjectURL(preview.url);
+          setPreview(null);
+        }
+      }
+      setSelectedScreenshots(new Set());
+      await mutate?.();
+    } catch (err) {
+      alert(`Failed to delete screenshots: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const takeScreenshot = async () => {
@@ -219,6 +313,22 @@ export default function Tools() {
                 </p>
               </div>
               <div className="flex gap-2">
+                {images.length > 0 && (
+                  <button 
+                    className="btn-outline text-xs" 
+                    onClick={selectedScreenshots.size === images.length ? clearScreenshotSelection : selectAllScreenshots}
+                  >
+                    {selectedScreenshots.size === images.length ? (
+                      <>
+                        <Square size={14} /> Deselect All
+                      </>
+                    ) : (
+                      <>
+                        <CheckSquare size={14} /> Select All
+                      </>
+                    )}
+                  </button>
+                )}
                 <button className="btn-primary" onClick={takeScreenshot}>
                   <Camera size={16} /> {t("tools.screenshots.takeScreenshot")}
                 </button>
@@ -240,28 +350,79 @@ export default function Tools() {
             <p className="text-sm text-red-400">{t("tools.screenshots.configurePrompt")}</p>
           )}
 
+          {selectedScreenshots.size > 0 && (
+            <div className="panel bg-sky-900/20 border-sky-500/50">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-300">
+                  {selectedScreenshots.size} screenshot{selectedScreenshots.size > 1 ? 's' : ''} selected
+                </span>
+                <div className="flex gap-2">
+                  <button className="btn-outline text-xs" onClick={clearScreenshotSelection}>
+                    Clear
+                  </button>
+                  <button className="btn-primary text-xs" onClick={downloadSelectedScreenshots}>
+                    <Download size={14} /> Download as ZIP
+                  </button>
+                  <button className="btn-outline text-xs text-red-400 hover:text-red-300" onClick={deleteSelectedScreenshots}>
+                    <Trash2 size={14} /> Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {Array.isArray(images) && images.map((img) => (
-              <div key={img.fullPath} className="screenshot-card">
-                <img
-                  src={buildRawUrl(img.fullPath)}
-                  alt={img.name}
-                  className="screenshot-thumb"
-                  onClick={() => openPreview(img)}
-                />
+              <div key={img.fullPath} className={`screenshot-card ${selectedScreenshots.has(img.fullPath) ? 'ring-2 ring-sky-500' : ''}`}>
+                <div className="relative">
+                  <img
+                    src={buildRawUrl(img.fullPath)}
+                    alt={img.name}
+                    className="screenshot-thumb"
+                    onClick={() => openPreview(img)}
+                  />
+                  <div className="absolute top-2 left-2">
+                    <button
+                      className="icon-btn bg-slate-900/80 hover:bg-slate-800/80"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleScreenshotSelection(img.fullPath);
+                      }}
+                      title={selectedScreenshots.has(img.fullPath) ? "Deselect" : "Select"}
+                    >
+                      {selectedScreenshots.has(img.fullPath) ? (
+                        <CheckSquare size={16} className="text-sky-400" />
+                      ) : (
+                        <Square size={16} />
+                      )}
+                    </button>
+                  </div>
+                </div>
                 <div className="screenshot-meta">
                   <div>
                     <p className="screenshot-name">{img.name}</p>
                     <p className="text-xs text-slate-400">{formatDate(img.modifiedAt)}</p>
                   </div>
                   <div className="screenshot-actions">
-                    <button className="icon-btn" onClick={() => openPreview(img)}>
-                      {t("common.view")}
+                    <button 
+                      className="icon-btn" 
+                      onClick={() => openPreview(img)}
+                      title={t("common.view")}
+                    >
+                      <Eye size={16} />
                     </button>
-                    <button className="icon-btn" onClick={() => download(img.fullPath)}>
-                      {t("common.download")}
+                    <button 
+                      className="icon-btn" 
+                      onClick={() => download(img.fullPath)}
+                      title={t("common.download")}
+                    >
+                      <Download size={16} />
                     </button>
-                    <button className="icon-btn" onClick={() => deleteScreenshot(img)}>
+                    <button 
+                      className="icon-btn" 
+                      onClick={() => deleteScreenshot(img)}
+                      title="Delete"
+                    >
                       <Trash2 size={16} />
                     </button>
                   </div>
@@ -347,10 +508,14 @@ export default function Tools() {
                   <>
                     {logContentLoading && <p className="text-sm text-slate-400">{t("tools.logs.loadingEntry")}</p>}
                     {!logContentLoading && (
-                      <pre className="text-xs text-slate-300 whitespace-pre-wrap max-h-[360px] overflow-y-auto">
+                      <pre className="text-xs text-slate-300 whitespace-pre-wrap max-h-[360px] overflow-y-auto font-mono">
                         {logContent}
                       </pre>
                     )}
+                    <div className="mt-2 text-xs text-slate-500 flex items-center gap-2">
+                      <RefreshCw size={12} className="animate-spin" />
+                      <span>Tailing log (auto-refreshing every 2 seconds)</span>
+                    </div>
                   </>
                 )}
               </div>
@@ -773,9 +938,11 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
                     <FolderPicker
                       initialPath={monitor.path}
                       onSelect={(path) => {
+                        // Normalize path by removing double backslashes
+                        const normalized = path.replace(/\\\\/g, '\\');
                         setForm((prev) => ({
                           ...prev,
-                          folderMonitors: Array.isArray(prev.folderMonitors) ? prev.folderMonitors.map((m, i) => i === index ? { ...m, path } : m) : []
+                          folderMonitors: Array.isArray(prev.folderMonitors) ? prev.folderMonitors.map((m, i) => i === index ? { ...m, path: normalized } : m) : []
                         }));
                         setFolderPickerIndex(null);
                       }}
@@ -914,7 +1081,9 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
 
   const handleFileSelect = useCallback((path: string) => {
     if (currentAppIdForPicker) {
-      updateApplication(currentAppIdForPicker, { executablePath: path });
+      // Normalize path by removing double backslashes
+      const normalized = path.replace(/\\\\/g, '\\');
+      updateApplication(currentAppIdForPicker, { executablePath: normalized });
     }
     setShowFilePicker(false);
     setCurrentAppIdForPicker(null);
@@ -1047,8 +1216,12 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
                           type="text"
                           className="input-text flex-1"
                       placeholder={t("tools.app.executablePlaceholder")}
-                          value={formatPath(app.executablePath)}
-                          onChange={(e) => updateApplication(app.id, { executablePath: e.target.value })}
+                          value={formatPath(app.executablePath || "")}
+                          onChange={(e) => {
+                            // Normalize path by removing double backslashes
+                            const normalized = e.target.value.replace(/\\\\/g, '\\');
+                            updateApplication(app.id, { executablePath: normalized });
+                          }}
                         />
                         <button
                           className="btn-outline"
@@ -1105,7 +1278,11 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
                         className="input-text"
                     placeholder={t("tools.app.workingPlaceholder")}
                         value={formatPath(app.workingDirectory || "")}
-                        onChange={(e) => updateApplication(app.id, { workingDirectory: e.target.value || null })}
+                        onChange={(e) => {
+                          // Normalize path by removing double backslashes
+                          const normalized = e.target.value.replace(/\\\\/g, '\\');
+                          updateApplication(app.id, { workingDirectory: normalized || null });
+                        }}
                       />
                     </div>
 
