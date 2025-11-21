@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Installer Distribution**: Automated GitHub Actions workflow for building MSI installers and portable ZIP packages
+- **Remote Desktop (VNC)**: Built-in VNC server for remote desktop access, configurable via Settings and Tools sections
+- **VNC Management**: Start/stop VNC server, configure port, password, and remote access settings
 - **Application Monitor**: Dedicated notification recipient list for application monitoring alerts
 - **Task Manager**: Ability to add processes directly to Application Monitor from the Task Manager interface
 - **Process Info**: Added `executablePath` field to process information for better process identification

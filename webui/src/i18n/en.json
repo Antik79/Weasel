@@ -51,7 +51,24 @@
     "senderEmail": "Sender Email",
     "senderName": "Sender Name",
     "sendTestEmail": "Send Test Email",
-    "recipient": "Recipient"
+    "recipient": "Recipient",
+    "remoteDesktop": {
+      "title": "Remote Desktop (VNC)",
+      "enable": "Enable VNC server",
+      "port": "Port",
+      "password": "Password",
+      "passwordPlaceholder": "Enter new password to change",
+      "passwordEmpty": "No password set",
+      "passwordHint": "Leave empty to keep current password. Set a password to change it.",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "allowRemote": "Allow remote connections",
+      "securityWarning": "Security Warning",
+      "securityWarningText": "Enabling remote connections allows access from other computers on your network. Ensure you have a strong password and consider firewall settings.",
+      "saveSuccess": "VNC settings saved successfully!",
+      "saveFailure": "Failed to save settings: {{message}}",
+      "saving": "Saving..."
+    }
   },
   "files": {
     "title": "Files",
@@ -86,6 +103,7 @@
       "logs": "Logs",
       "disk": "Disk Monitoring",
       "appMonitor": "Application Monitor",
+      "remoteDesktop": "Remote Desktop",
       "processes": "Processes"
     },
     "screenshots": {
@@ -202,6 +220,40 @@
       "subtitle": "{{count}} processes running",
       "filterPlaceholder": "Filter processes...",
       "empty": "No processes found"
+    },
+    "vnc": {
+      "title": "Remote Desktop (VNC)",
+      "statusTitle": "Server Status",
+      "enable": "Enable VNC server",
+      "port": "Port",
+      "password": "Password",
+      "passwordPlaceholder": "Enter new password to change",
+      "passwordEmpty": "No password set",
+      "passwordHint": "Leave empty to keep current password. Set a password to change it.",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "allowRemote": "Allow remote connections",
+      "securityWarning": "Security Warning",
+      "securityWarningText": "Enabling remote connections allows access from other computers on your network. Ensure you have a strong password and consider firewall settings.",
+      "status": "Status",
+      "running": "Running",
+      "stopped": "Stopped",
+      "connections": "Active Connections",
+      "connectionInfo": "Connection Information",
+      "connectionHint": "Use a VNC client to connect using the address above.",
+      "start": "Start Server",
+      "stop": "Stop Server",
+      "starting": "Starting...",
+      "stopping": "Stopping...",
+      "save": "Save Settings",
+      "saving": "Saving...",
+      "saveSuccess": "VNC settings saved successfully!",
+      "saveFailure": "Failed to save settings: {{message}}",
+      "startSuccess": "VNC server started successfully!",
+      "startFailure": "Failed to start VNC server: {{message}}",
+      "stopSuccess": "VNC server stopped successfully!",
+      "stopFailure": "Failed to stop VNC server: {{message}}",
+      "loading": "Loading VNC configuration..."
     }
   }
 }

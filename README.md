@@ -17,6 +17,7 @@ Weasel is a Windows-based remote system administration tool that runs as a syste
 - **Power Control**: Shutdown, restart, or lock the machine remotely.
 - **Package Management**: Install and uninstall applications via `winget`.
 - **Disk Monitoring**: Automated monitoring and alerting for disk space usage.
+- **Remote Desktop (VNC)**: Built-in VNC server for remote desktop access.
 
 ## Architecture
 
@@ -51,7 +52,16 @@ The solution follows a clean architecture pattern:
     ```
     Access the UI at `http://localhost:5173`.
 
-## Building for Deployment
+## Installation
+
+### Download from GitHub Releases
+
+Pre-built installers and portable packages are available on the [GitHub Releases](https://github.com/Antik79/Weasel/releases) page:
+
+- **MSI Installer**: Recommended for standard installations. Includes automatic startup configuration and uninstaller.
+- **Portable ZIP**: Extract and run. No installation required. Ideal for temporary use or testing.
+
+### Building from Source
 
 To build the full application (Backend + Frontend):
 
@@ -80,6 +90,7 @@ Key settings include:
 - **Remote Access**: Set `WeaselHost:WebServer:AllowRemote` to `true` to allow external connections.
 - **Security**: Set `WeaselHost:Security:RequireAuthentication` to `true` to require an `X-Weasel-Token` header.
 - **HTTPS**: Configure `CertificatePath` and `CertificatePassword` to enable HTTPS.
+- **VNC Server**: Enable and configure the built-in VNC server for remote desktop access in Settings → Remote Desktop or Tools → Remote Desktop.
 
 See the following guides for more detailed information:
 

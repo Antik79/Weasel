@@ -15,6 +15,7 @@ public class WeaselHostOptions
     public DiskMonitoringOptions DiskMonitoring { get; set; } = new();
     public ApplicationMonitorOptions ApplicationMonitor { get; set; } = new();
     public SmtpOptions Smtp { get; set; } = new();
+    public VncOptions Vnc { get; set; } = new();
     public string? CertificatePassword { get; set; }
 }
 

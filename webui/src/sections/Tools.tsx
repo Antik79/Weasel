@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import useSWR from "swr";
-import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square } from "lucide-react";
+import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square, Monitor as MonitorIcon, Eye as EyeIcon, Shield } from "lucide-react";
 import { api, download } from "../api/client";
-import { FileSystemItem, CaptureSettings, LogsResponse, LogFileInfo, DiskMonitoringConfig, DiskMonitoringStatus, DriveAlertStatus, DriveMonitorConfig, FolderMonitorOptions, ProcessInfo, ApplicationMonitorConfig, MonitoredApplication } from "../types";
+import { FileSystemItem, CaptureSettings, LogsResponse, LogFileInfo, DiskMonitoringConfig, DiskMonitoringStatus, DriveAlertStatus, DriveMonitorConfig, FolderMonitorOptions, ProcessInfo, ApplicationMonitorConfig, MonitoredApplication, VncConfig, VncStatus } from "../types";
 import { formatBytes, formatDate, formatPath } from "../utils/format";
 import FilePicker from "../components/FilePicker";
 import FolderPicker from "../components/FolderPicker";
@@ -10,7 +10,7 @@ import Table, { TableColumn } from "../components/Table";
 import { useTranslation } from "../i18n/i18n";
 import { useTheme, type Theme } from "../theme";
 
-type ToolsTab = "screenshots" | "logs" | "disk-monitoring" | "application-monitor";
+type ToolsTab = "screenshots" | "logs" | "disk-monitoring" | "application-monitor" | "remote-desktop";
 
 type TranslateFn = (key: string, replacements?: Record<string, string | number>) => string;
 
@@ -1313,6 +1313,217 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
           fileExtensions={[".exe", ".bat", ".cmd", ".com", ".scr", ".vbs", ".js", ".ps1"]}
         />
       )}
+    </div>
+  );
+}
+
+function RemoteDesktopTab({ t }: { t: TranslateFn }) {
+  const [isSaving, setIsSaving] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
+  const [isStopping, setIsStopping] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [password, setPassword] = useState("");
+
+  const { data: config, mutate: mutateConfig } = useSWR<VncConfig>("vnc-config", () => api<VncConfig>("/api/vnc/config"));
+  const { data: status, mutate: mutateStatus } = useSWR<VncStatus>("vnc-status", () => api<VncStatus>("/api/vnc/status"), { refreshInterval: 2000 });
+
+  const handleSave = async () => {
+    if (!config) return;
+    setIsSaving(true);
+    try {
+      await api("/api/vnc/config", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: config.enabled,
+          port: config.port,
+          allowRemote: config.allowRemote,
+          password: password || undefined
+        })
+      });
+      await mutateConfig();
+      alert(t("tools.vnc.saveSuccess"));
+    } catch (err) {
+      alert(t("tools.vnc.saveFailure", { message: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setIsSaving(false);
+      setPassword("");
+    }
+  };
+
+  const handleStart = async () => {
+    setIsStarting(true);
+    try {
+      await api("/api/vnc/start", { method: "POST" });
+      await mutateStatus();
+      alert(t("tools.vnc.startSuccess"));
+    } catch (err) {
+      alert(t("tools.vnc.startFailure", { message: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setIsStarting(false);
+    }
+  };
+
+  const handleStop = async () => {
+    setIsStopping(true);
+    try {
+      await api("/api/vnc/stop", { method: "POST" });
+      await mutateStatus();
+      alert(t("tools.vnc.stopSuccess"));
+    } catch (err) {
+      alert(t("tools.vnc.stopFailure", { message: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setIsStopping(false);
+    }
+  };
+
+  if (!config) {
+    return <div className="text-sm text-slate-400">{t("tools.vnc.loading")}</div>;
+  }
+
+  const localIp = status?.allowRemote ? window.location.hostname : "127.0.0.1";
+  const connectionInfo = status?.isRunning ? `${localIp}:${status.port}` : null;
+
+  return (
+    <div className="space-y-4">
+      <div className="panel space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="panel-title mb-0 flex items-center gap-2">
+            <MonitorIcon size={18} /> {t("tools.vnc.title")}
+          </h3>
+          <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
+            <Save size={16} /> {isSaving ? t("tools.vnc.saving") : t("tools.vnc.save")}
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="vnc-enable"
+                className="checkbox"
+                checked={config.enabled}
+                onChange={(e) => mutateConfig({ ...config, enabled: e.target.checked }, false)}
+              />
+              <label htmlFor="vnc-enable" className="text-sm text-slate-300 cursor-pointer">
+                {t("tools.vnc.enable")}
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="vnc-port" className="block text-sm text-slate-400 mb-1">{t("tools.vnc.port")}</label>
+            <input
+              type="number"
+              id="vnc-port"
+              min={1024}
+              max={65535}
+              className="input-text w-32"
+              value={config.port}
+              onChange={(e) => mutateConfig({ ...config, port: parseInt(e.target.value) || 5900 }, false)}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="vnc-password" className="block text-sm text-slate-400 mb-1">{t("tools.vnc.password")}</label>
+            <div className="flex gap-2">
+              <input
+                type={showPassword ? "text" : "password"}
+                id="vnc-password"
+                className="input-text flex-1"
+                placeholder={config.hasPassword ? t("tools.vnc.passwordPlaceholder") : t("tools.vnc.passwordEmpty")}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                className="btn-outline"
+                onClick={() => setShowPassword(!showPassword)}
+                title={showPassword ? t("tools.vnc.hidePassword") : t("tools.vnc.showPassword")}
+              >
+                <EyeIcon size={16} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">{t("tools.vnc.passwordHint")}</p>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="vnc-allow-remote"
+                className="checkbox"
+                checked={config.allowRemote}
+                onChange={(e) => mutateConfig({ ...config, allowRemote: e.target.checked }, false)}
+              />
+              <label htmlFor="vnc-allow-remote" className="text-sm text-slate-300 cursor-pointer">
+                {t("tools.vnc.allowRemote")}
+              </label>
+            </div>
+          </div>
+
+          {config.allowRemote && (
+            <div className="bg-amber-900/20 border border-amber-500/50 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <Shield size={16} className="text-amber-400 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-amber-200">
+                  <p className="font-semibold mb-1">{t("tools.vnc.securityWarning")}</p>
+                  <p>{t("tools.vnc.securityWarningText")}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="panel space-y-4">
+        <h3 className="panel-title mb-0">{t("tools.vnc.statusTitle")}</h3>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-slate-400">{t("tools.vnc.status")}</span>
+            <span className={`text-sm font-semibold ${status?.isRunning ? "text-green-400" : "text-slate-400"}`}>
+              {status?.isRunning ? t("tools.vnc.running") : t("tools.vnc.stopped")}
+            </span>
+          </div>
+
+          {status?.isRunning && (
+            <>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-slate-400">{t("tools.vnc.connections")}</span>
+                <span className="text-sm font-semibold text-white">{status.connectionCount}</span>
+              </div>
+
+              {connectionInfo && (
+                <div className="bg-slate-900/60 rounded-lg p-3 border border-slate-800">
+                  <p className="text-xs text-slate-400 mb-1">{t("tools.vnc.connectionInfo")}</p>
+                  <p className="text-sm font-mono text-white">{connectionInfo}</p>
+                  <p className="text-xs text-slate-500 mt-2">{t("tools.vnc.connectionHint")}</p>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <button
+              className="btn-primary flex-1"
+              onClick={handleStart}
+              disabled={isStarting || isStopping || status?.isRunning || !config.enabled}
+            >
+              {isStarting ? t("tools.vnc.starting") : t("tools.vnc.start")}
+            </button>
+            <button
+              className="btn-outline flex-1"
+              onClick={handleStop}
+              disabled={isStarting || isStopping || !status?.isRunning}
+            >
+              {isStopping ? t("tools.vnc.stopping") : t("tools.vnc.stop")}
+            </button>
+            <button className="btn-outline" onClick={() => mutateStatus()}>
+              <RefreshCw size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

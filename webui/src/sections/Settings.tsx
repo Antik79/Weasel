@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import useSWR from "swr";
-import { FolderOpen, Lock, Save, Mail, Send, Settings as SettingsIcon, Monitor, Shield, Globe, FileText } from "lucide-react";
+import { FolderOpen, Lock, Save, Mail, Send, Settings as SettingsIcon, Monitor, Shield, Globe, FileText, Eye } from "lucide-react";
 import { api } from "../api/client";
-import { CaptureSettings, SmtpConfig, LoggingConfig } from "../types";
+import { CaptureSettings, SmtpConfig, LoggingConfig, VncConfig } from "../types";
 import FolderPicker from "../components/FolderPicker";
 import { useTranslation } from "../i18n/i18n";
 import { formatPath, formatBytes } from "../utils/format";
@@ -13,7 +13,7 @@ const smtpFetcher = () => api<SmtpConfig>("/api/settings/mail");
 const startupFetcher = () => api<{ enabled: boolean }>("/api/system/startup");
 const adminStatusFetcher = () => api<{ isAdministrator: boolean }>("/api/system/admin/status");
 
-type SettingsTab = "general" | "security" | "mail" | "logging";
+type SettingsTab = "general" | "security" | "mail" | "logging" | "remote-desktop";
 
 export default function Settings() {
   const { t, language, setLanguage } = useTranslation();
@@ -222,6 +222,13 @@ export default function Settings() {
         >
           <FileText size={16} />
           Logging
+        </button>
+        <button
+          onClick={() => setActiveTab("remote-desktop")}
+          className={`submenu-tab ${activeTab === "remote-desktop" ? "active" : ""}`}
+        >
+          <Monitor size={16} />
+          {t("settings.remoteDesktop")}
         </button>
       </div>
 
@@ -673,6 +680,144 @@ function LoggingSettingsTab() {
           onCancel={() => setShowLoggingPicker(false)}
         />
       )}
+    </div>
+  );
+}
+
+function RemoteDesktopSettingsTab() {
+  const { t } = useTranslation();
+  const [isSaving, setIsSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [password, setPassword] = useState("");
+
+  const { data: config, mutate: mutateConfig } = useSWR<VncConfig>("vnc-config", () => api<VncConfig>("/api/vnc/config"));
+
+  const [vncForm, setVncForm] = useState<VncConfig>({
+    enabled: false,
+    port: 5900,
+    allowRemote: false,
+    hasPassword: false
+  });
+
+  useEffect(() => {
+    if (config) {
+      setVncForm(config);
+    }
+  }, [config]);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await api("/api/vnc/config", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: vncForm.enabled,
+          port: vncForm.port,
+          allowRemote: vncForm.allowRemote,
+          password: password || undefined
+        })
+      });
+      await mutateConfig();
+      setPassword("");
+      alert(t("settings.remoteDesktop.saveSuccess"));
+    } catch (err) {
+      alert(t("settings.remoteDesktop.saveFailure", { message: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="panel space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="panel-title mb-0 flex items-center gap-2">
+            <Monitor size={18} /> {t("settings.remoteDesktop.title")}
+          </h3>
+          <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
+            <Save size={16} /> {isSaving ? t("settings.remoteDesktop.saving") : t("common.save")}
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="vnc-enable"
+                className="checkbox"
+                checked={vncForm.enabled}
+                onChange={(e) => setVncForm({ ...vncForm, enabled: e.target.checked })}
+              />
+              <label htmlFor="vnc-enable" className="text-sm text-slate-300 cursor-pointer">
+                {t("settings.remoteDesktop.enable")}
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="vnc-port" className="block text-sm text-slate-400 mb-1">{t("settings.remoteDesktop.port")}</label>
+            <input
+              type="number"
+              id="vnc-port"
+              min={1024}
+              max={65535}
+              className="input-text w-32"
+              value={vncForm.port}
+              onChange={(e) => setVncForm({ ...vncForm, port: parseInt(e.target.value) || 5900 })}
+            />
+          </div>
+
+          <div>
+            <label htmlFor="vnc-password" className="block text-sm text-slate-400 mb-1">{t("settings.remoteDesktop.password")}</label>
+            <div className="flex gap-2">
+              <input
+                type={showPassword ? "text" : "password"}
+                id="vnc-password"
+                className="input-text flex-1"
+                placeholder={vncForm.hasPassword ? t("settings.remoteDesktop.passwordPlaceholder") : t("settings.remoteDesktop.passwordEmpty")}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <button
+                className="btn-outline"
+                onClick={() => setShowPassword(!showPassword)}
+                title={showPassword ? t("settings.remoteDesktop.hidePassword") : t("settings.remoteDesktop.showPassword")}
+              >
+                <Eye size={16} />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">{t("settings.remoteDesktop.passwordHint")}</p>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="vnc-allow-remote"
+                className="checkbox"
+                checked={vncForm.allowRemote}
+                onChange={(e) => setVncForm({ ...vncForm, allowRemote: e.target.checked })}
+              />
+              <label htmlFor="vnc-allow-remote" className="text-sm text-slate-300 cursor-pointer">
+                {t("settings.remoteDesktop.allowRemote")}
+              </label>
+            </div>
+          </div>
+
+          {vncForm.allowRemote && (
+            <div className="bg-amber-900/20 border border-amber-500/50 rounded-lg p-3">
+              <div className="flex items-start gap-2">
+                <Shield size={16} className="text-amber-400 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-amber-200">
+                  <p className="font-semibold mb-1">{t("settings.remoteDesktop.securityWarning")}</p>
+                  <p>{t("settings.remoteDesktop.securityWarningText")}</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

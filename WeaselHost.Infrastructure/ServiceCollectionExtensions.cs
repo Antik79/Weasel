@@ -19,11 +19,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IScreenshotService, ScreenshotService>();
         services.AddSingleton<ISettingsStore, SettingsStore>();
         services.AddSingleton<IEmailService, EmailService>();
-        services.AddSingleton<IDiskMonitorService, DiskMonitorService>();
-        services.AddHostedService(provider => (DiskMonitorService)provider.GetRequiredService<IDiskMonitorService>());
-        services.AddHostedService<ApplicationMonitorService>();
+            services.AddSingleton<IDiskMonitorService, DiskMonitorService>();
+            services.AddHostedService(provider => (DiskMonitorService)provider.GetRequiredService<IDiskMonitorService>());
+            services.AddHostedService<ApplicationMonitorService>();
+            services.AddSingleton<IVncService, VncService>();
 
-        return services;
+            return services;
     }
 }
 

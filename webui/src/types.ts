@@ -221,3 +221,17 @@ export interface MonitoredApplication {
   eventLogSource?: string | null;
 }
 
+export interface VncConfig {
+  enabled: boolean;
+  port: number;
+  allowRemote: boolean;
+  hasPassword: boolean;
+}
+
+export interface VncStatus {
+  isRunning: boolean;
+  port: number;
+  connectionCount: number;
+  allowRemote: boolean;
+}
+

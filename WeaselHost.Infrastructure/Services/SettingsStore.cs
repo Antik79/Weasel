@@ -196,6 +196,39 @@ public sealed class SettingsStore : ISettingsStore
         await File.WriteAllTextAsync(_configPath, json, cancellationToken);
         await Task.Delay(100, cancellationToken); // Ensure file is flushed before config reload
     }
+
+    public async Task SaveVncSettingsAsync(VncOptions options, CancellationToken cancellationToken = default)
+    {
+        JsonNode root;
+        if (File.Exists(_configPath))
+        {
+            await using var stream = File.OpenRead(_configPath);
+            root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) ?? new JsonObject();
+        }
+        else
+        {
+            root = new JsonObject();
+        }
+
+        var weaselHostNode = root["WeaselHost"] as JsonObject ?? new JsonObject();
+        root["WeaselHost"] = weaselHostNode;
+
+        var vncNode = weaselHostNode["Vnc"] as JsonObject ?? new JsonObject();
+        vncNode["Enabled"] = options.Enabled;
+        vncNode["Port"] = options.Port;
+        vncNode["AllowRemote"] = options.AllowRemote;
+        // Store password only if provided (don't overwrite with null)
+        if (!string.IsNullOrWhiteSpace(options.Password))
+        {
+            vncNode["Password"] = options.Password;
+        }
+        weaselHostNode["Vnc"] = vncNode;
+
+        var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
+        await File.WriteAllTextAsync(_configPath, json, cancellationToken);
+        await Task.Delay(100, cancellationToken); // Ensure file is flushed before config reload
+    }
 }
 
 

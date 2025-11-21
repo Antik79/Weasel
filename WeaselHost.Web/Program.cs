@@ -323,6 +323,7 @@ public static class Program
         MapLogEndpoints(api.MapGroup("/logs"));
         MapDiskMonitoringEndpoints(api.MapGroup("/disk-monitoring"));
         MapApplicationMonitorEndpoints(api.MapGroup("/application-monitor"));
+        MapVncEndpoints(api.MapGroup("/vnc"));
 
         // SPA fallback - serve index.html for all non-API routes
         app.MapFallbackToFile("index.html");
@@ -659,6 +660,91 @@ public static class Program
         });
     }
 
+    private static void MapVncEndpoints(RouteGroupBuilder group)
+    {
+        group.MapGet("/status", async (IVncService vncService, CancellationToken cancellationToken) =>
+        {
+            var status = await vncService.GetStatusAsync(cancellationToken);
+            return Results.Ok(status);
+        });
+
+        group.MapGet("/config", (IOptionsMonitor<WeaselHostOptions> options) =>
+        {
+            var vnc = options.CurrentValue.Vnc;
+            // Don't return password in config
+            return Results.Ok(new
+            {
+                enabled = vnc.Enabled,
+                port = vnc.Port,
+                allowRemote = vnc.AllowRemote,
+                hasPassword = !string.IsNullOrWhiteSpace(vnc.Password)
+            });
+        });
+
+        group.MapPut("/config", async (VncConfigRequest request, ISettingsStore settingsStore, IOptionsMonitor<WeaselHostOptions> optionsMonitor, IVncService vncService, CancellationToken cancellationToken) =>
+        {
+            var currentVnc = optionsMonitor.CurrentValue.Vnc;
+            var vncOptions = new VncOptions
+            {
+                Enabled = request.Enabled,
+                Port = request.Port,
+                AllowRemote = request.AllowRemote,
+                // Only update password if provided
+                Password = string.IsNullOrWhiteSpace(request.Password) ? currentVnc.Password : request.Password
+            };
+
+            await settingsStore.SaveVncSettingsAsync(vncOptions, cancellationToken);
+            
+            // If VNC was enabled and is now disabled, stop the server
+            if (currentVnc.Enabled && !request.Enabled)
+            {
+                await vncService.StopAsync(cancellationToken);
+            }
+            // If VNC was disabled and is now enabled, start the server
+            else if (!currentVnc.Enabled && request.Enabled)
+            {
+                await vncService.StartAsync(vncOptions.Port, vncOptions.Password, vncOptions.AllowRemote, cancellationToken);
+            }
+            // If VNC is running and settings changed, restart it
+            else if (request.Enabled)
+            {
+                var status = await vncService.GetStatusAsync(cancellationToken);
+                if (status.IsRunning)
+                {
+                    await vncService.StopAsync(cancellationToken);
+                    await Task.Delay(500, cancellationToken); // Brief delay before restart
+                }
+                await vncService.StartAsync(vncOptions.Port, vncOptions.Password, vncOptions.AllowRemote, cancellationToken);
+            }
+
+            return Results.Ok(new
+            {
+                enabled = vncOptions.Enabled,
+                port = vncOptions.Port,
+                allowRemote = vncOptions.AllowRemote,
+                hasPassword = !string.IsNullOrWhiteSpace(vncOptions.Password)
+            });
+        });
+
+        group.MapPost("/start", async (IVncService vncService, IOptionsMonitor<WeaselHostOptions> optionsMonitor, CancellationToken cancellationToken) =>
+        {
+            var vnc = optionsMonitor.CurrentValue.Vnc;
+            if (!vnc.Enabled)
+            {
+                return Results.BadRequest(new { error = "VNC is not enabled. Please enable it in settings first." });
+            }
+
+            await vncService.StartAsync(vnc.Port, vnc.Password, vnc.AllowRemote, cancellationToken);
+            return Results.Ok(new { message = "VNC server started" });
+        });
+
+        group.MapPost("/stop", async (IVncService vncService, CancellationToken cancellationToken) =>
+        {
+            await vncService.StopAsync(cancellationToken);
+            return Results.Ok(new { message = "VNC server stopped" });
+        });
+    }
+
     private static string EnsureLogFolder(string? configuredFolder)
     {
         var folder = string.IsNullOrWhiteSpace(configuredFolder)
@@ -671,6 +757,8 @@ public static class Program
     private record LogFileDto(string Name, long SizeBytes, DateTime LastModified);
 
     private record SecurityUpdateRequest(bool RequireAuthentication, string? Password);
+
+    private record VncConfigRequest(bool Enabled, int Port, bool AllowRemote, string? Password);
 
     private record TestEmailRequest(string Recipient);
 
