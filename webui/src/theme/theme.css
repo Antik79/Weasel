@@ -1,0 +1,52 @@
+:root {
+  /* Background Colors */
+  --color-bg-primary: #030712;
+  --color-bg-secondary: #0f172a;
+  --color-bg-tertiary: #1e293b;
+  --color-bg-panel: rgba(15, 23, 42, 0.8);
+  --color-bg-modal: #0f172a;
+  --color-bg-submenu: rgba(15, 23, 42, 0.5);
+  
+  /* Text Colors */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #e2e8f0;
+  --color-text-tertiary: #cbd5e1;
+  --color-text-muted: #94a3b8;
+  
+  /* Border Colors */
+  --color-border-default: rgba(148, 163, 184, 0.3);
+  --color-border-hover: rgba(148, 163, 184, 0.4);
+  --color-border-active: #38bdf8;
+  --color-border-muted: rgba(148, 163, 184, 0.12);
+  
+  /* Accent Colors */
+  --color-accent-primary: #38bdf8;
+  --color-accent-hover: #0ea5e9;
+  --color-accent-active: #2563eb;
+  
+  /* State Colors */
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+  
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  
+  /* Border Radius */
+  --radius-sm: 0.4rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-full: 999px;
+  
+  /* Shadows */
+  --shadow-sm: 0 15px 30px rgba(2, 6, 23, 0.35);
+  --shadow-md: 0 20px 45px rgba(2, 6, 23, 0.45);
+  --shadow-lg: 0 30px 60px rgba(2, 6, 23, 0.7);
+  --shadow-xl: 0 40px 80px rgba(2, 6, 23, 0.9);
+}
+

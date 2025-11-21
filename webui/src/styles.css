@@ -1,0 +1,44 @@
+/* Import theme files - @import must come before all other statements */
+@import url('./theme/theme.css');
+@import url('./theme/components.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at top left, #10243a, var(--color-bg-primary) 70%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.app-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* Legacy sub-nav styles for backward compatibility */
+.sub-nav {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.sub-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
