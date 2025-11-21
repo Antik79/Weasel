@@ -61,6 +61,7 @@ This document lists all API endpoints that the frontend calls and verifies they 
 | Frontend Call | Backend Endpoint | Status |
 |--------------|-----------------|--------|
 | `GET /api/packages` | `GET /api/packages` | ✅ **Added** |
+| `GET /api/packages/show?identifier=...` | `GET /api/packages/show?identifier=...` | ✅ **Added** |
 | `POST /api/packages/install` | `POST /api/packages/install` | ✅ **Added** |
 | `POST /api/packages/uninstall` | `POST /api/packages/uninstall` | ✅ **Added** |
 
@@ -110,8 +111,8 @@ This document lists all API endpoints that the frontend calls and verifies they 
 
 ## Summary
 
-- **Total Endpoints Verified**: 50+
-- **Newly Added**: 12 endpoints
+- **Total Endpoints Verified**: 51+
+- **Newly Added**: 13 endpoints
 - **Fixed**: 2 endpoints (power endpoints now accept JSON body)
 - **All endpoints verified**: ✅
 

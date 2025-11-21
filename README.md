@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="assets/weasel-logo.png" alt="Weasel Logo" width="200" />
+</div>
+
 # Weasel
 
 Weasel is a Windows-based remote system administration tool that runs as a system tray application. It provides a modern web-based console for managing files, processes, services, system information, and more on Windows machines.
