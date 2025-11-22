@@ -1,0 +1,186 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup .NET 8.0 SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: webui/package-lock.json
+
+    - name: Extract version from tag
+      id: get_version
+      shell: pwsh
+      run: |
+        if ($env:GITHUB_REF -match 'refs/tags/v(.+)') {
+          $version = $matches[1]
+        } elseif (${{ github.event.inputs.version }}) {
+          $version = "${{ github.event.inputs.version }}"
+        } else {
+          $version = "0.0.0-dev"
+        }
+        Write-Host "VERSION=$version" >> $env:GITHUB_ENV
+        Write-Host "Version: $version"
+
+    - name: Install dependencies
+      working-directory: webui
+      run: npm ci
+
+    - name: Build frontend
+      working-directory: webui
+      run: npm run build
+
+    - name: Publish application
+      run: |
+        dotnet publish WeaselHost/WeaselHost.csproj `
+          -c Release `
+          -r win-x64 `
+          --self-contained true `
+          /p:PublishSingleFile=true `
+          /p:IncludeNativeLibrariesForSelfExtract=true `
+          /p:EnableCompressionInSingleFile=true `
+          /p:Version=$env:VERSION `
+          /p:FileVersion=$env:VERSION `
+          /p:AssemblyVersion=$env:VERSION `
+          -o publish/win-x64
+
+    - name: Create artifacts directory
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path artifacts
+
+    - name: Create portable ZIP
+      shell: pwsh
+      run: |
+        $zipName = "Weasel-$env:VERSION-portable.zip"
+        $publishDir = "publish/win-x64"
+        
+        # Create a clean directory structure
+        New-Item -ItemType Directory -Force -Path "portable/Weasel-$env:VERSION"
+        Copy-Item -Path "$publishDir/*" -Destination "portable/Weasel-$env:VERSION" -Recurse -Force
+        
+        # Create README for portable version
+        $readme = @"
+# Weasel Portable $env:VERSION
+
+## Quick Start
+
+1. Extract this ZIP file to your desired location
+2. Run `Weasel.exe`
+3. Access the web console at http://localhost:7780
+
+## Configuration
+
+Configuration files are stored in:
+`$env:APPDATA\Weasel\config\appsettings.json`
+
+Logs are stored in:
+`$env:APPDATA\Weasel\Logs\`
+
+## Startup Options
+
+To run Weasel on Windows startup:
+
+### Option 1: Registry (Current User)
+```powershell
+reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Weasel /t REG_SZ /d "$PWD\Weasel.exe"
+```
+
+### Option 2: Scheduled Task
+```powershell
+schtasks /Create /SC ONLOGON /TN Weasel /TR "$PWD\Weasel.exe" /RL HIGHEST
+```
+
+## Updating
+
+1. Stop Weasel (right-click tray icon > Exit)
+2. Replace the old files with new ones
+3. Restart Weasel
+
+For more information, visit: https://github.com/Antik79/Weasel
+"@
+        $readme | Out-File -FilePath "portable/Weasel-$env:VERSION/README.txt" -Encoding UTF8
+        
+        # Create ZIP
+        Compress-Archive -Path "portable/Weasel-$env:VERSION/*" -DestinationPath "artifacts/$zipName" -Force
+        
+        Write-Host "Created: artifacts/$zipName"
+
+    # Note: MSI installer creation requires WiX Toolset setup
+    # To add MSI installer support, install WiX and create a .wxs file
+    # - name: Build MSI Installer
+    #   uses: seanmiddleditch/wix-github-action@v3
+    #   with:
+    #     path: publish/win-x64
+    #     installFiles: true
+
+    - name: Calculate checksums
+      shell: pwsh
+      run: |
+        Get-ChildItem -Path artifacts/*.zip | ForEach-Object {
+          $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
+          $hashFile = "$($_.FullName).sha256"
+          "$hash  $($_.Name)" | Out-File -FilePath $hashFile -Encoding ASCII
+          Write-Host "Checksum: $hashFile"
+        }
+
+    - name: Extract release notes
+      id: release_notes
+      shell: pwsh
+      run: |
+        $changelog = Get-Content CHANGELOG.md -Raw
+        if ($changelog -match '## \[([^\]]+)\]([^\#]+)') {
+          $version = $matches[1]
+          $notes = $matches[2].Trim()
+          Write-Host "RELEASE_NOTES<<EOF" >> $env:GITHUB_OUTPUT
+          Write-Host $notes >> $env:GITHUB_OUTPUT
+          Write-Host "EOF" >> $env:GITHUB_OUTPUT
+        } else {
+          Write-Host "RELEASE_NOTES=Release $env:VERSION" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          artifacts/*.zip
+          artifacts/*.sha256
+        name: Release ${{ env.VERSION }}
+        body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
+        draft: false
+        prerelease: ${{ contains(env.VERSION, '-') }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-artifacts
+        path: artifacts/
+        retention-days: 30
+

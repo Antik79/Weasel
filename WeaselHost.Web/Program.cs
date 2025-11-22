@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using System.Linq;
+using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -58,6 +61,9 @@ public static class Program
 
         var app = builder.Build();
         
+        // Enable WebSockets
+        app.UseWebSockets();
+        
         // Add file logging provider after app is built so we can get the options monitor
         var optionsMonitor = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptionsMonitor<WeaselHostOptions>>();
         var fileLoggerProvider = new WeaselHost.Web.Logging.FileLoggerProvider(optionsMonitor);
@@ -65,6 +71,7 @@ public static class Program
         loggerFactory.AddProvider(fileLoggerProvider);
 
         app.UseCors(x => x.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+        app.UseWebSockets();
         
         // Configure static files
         var wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
@@ -139,6 +146,16 @@ public static class Program
         });
         system.MapGet("/startup", (ISystemInfoService sys) => Results.Ok(new { enabled = sys.IsStartupOnBootEnabled() }));
         system.MapGet("/admin/status", (ISystemInfoService sys) => Results.Ok(new { isAdministrator = sys.IsRunningAsAdministrator() }));
+        system.MapGet("/version", (IOptionsMonitor<WeaselHostOptions> options) => 
+        {
+            var version = options.CurrentValue.Version;
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            var buildDate = assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                .FirstOrDefault() is System.Reflection.AssemblyInformationalVersionAttribute attr 
+                    ? attr.InformationalVersion 
+                    : assembly.GetName().Version?.ToString() ?? version;
+            return Results.Ok(new { version, buildDate });
+        });
         system.MapPost("/admin/restart", async (ISystemInfoService sys, CancellationToken ct) =>
         {
             await sys.RestartAsAdministratorAsync(ct);
@@ -569,34 +586,143 @@ public static class Program
         group.MapGet("/logging", (IOptionsMonitor<WeaselHostOptions> options) =>
             Results.Ok(options.CurrentValue.Logging));
 
-        group.MapPut("/logging", async (LoggingOptions request, ISettingsStore settingsStore, CancellationToken cancellationToken) =>
+        group.MapPut("/logging", async (LoggingOptions request, ISettingsStore settingsStore, IOptionsMonitor<WeaselHostOptions> optionsMonitor, CancellationToken cancellationToken) =>
         {
             await settingsStore.SaveLoggingSettingsAsync(request, cancellationToken);
-            return Results.Ok(request);
+            // Wait a bit for config to reload
+            await Task.Delay(500, cancellationToken);
+            return Results.Ok(optionsMonitor.CurrentValue.Logging);
         });
     }
 
     private static void MapLogEndpoints(RouteGroupBuilder group)
     {
-        group.MapGet("/", (IOptionsMonitor<WeaselHostOptions> options) =>
+        group.MapGet("/", (IOptionsMonitor<WeaselHostOptions> options, string? subfolder) =>
         {
-            var folder = EnsureLogFolder(options.CurrentValue.Logging.Folder);
-            var files = Directory.Exists(folder)
-                ? Directory.GetFiles(folder, "*.log")
-                    .Select(path => new LogFileDto(
-                        Path.GetFileName(path),
-                        new FileInfo(path).Length,
-                        File.GetLastWriteTimeUtc(path)))
-                    .OrderByDescending(file => file.LastModified)
-                    .ToList()
-                : new List<LogFileDto>();
+            var baseFolder = EnsureLogFolder(options.CurrentValue.Logging.Folder);
+            
+            // Determine target folder - handle root, component folders, and Archive subfolders
+            string folder;
+            string? pattern = null;
+            
+            if (string.IsNullOrWhiteSpace(subfolder))
+            {
+                // Root level - show general logs (weasel-*.log)
+                folder = baseFolder;
+                pattern = "weasel-*.log";
+            }
+            else
+            {
+                // Handle subfolder paths like "VNC", "VNC/Archive", "Archive"
+                var parts = subfolder.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Select(p => Path.GetFileName(p)) // Sanitize each part
+                    .ToArray();
+                
+                if (parts.Length == 0)
+                {
+                    folder = baseFolder;
+                    pattern = "weasel-*.log";
+                }
+                else if (parts.Length == 1)
+                {
+                    if (parts[0].Equals("Archive", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Root Archive folder
+                        folder = Path.Combine(baseFolder, "Archive");
+                        pattern = "weasel-*.log";
+                    }
+                    else
+                    {
+                        // Component folder (e.g., "VNC")
+                        folder = Path.Combine(baseFolder, parts[0]);
+                        pattern = $"{parts[0]}-*.log";
+                    }
+                }
+                else if (parts.Length == 2 && parts[1].Equals("Archive", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Component Archive folder (e.g., "VNC/Archive")
+                    folder = Path.Combine(baseFolder, parts[0], "Archive");
+                    pattern = $"{parts[0]}-*.log";
+                }
+                else
+                {
+                    return Results.BadRequest("Invalid subfolder path.");
+                }
+            }
+            
+            if (!Directory.Exists(folder))
+            {
+                var emptySubfolders = string.IsNullOrWhiteSpace(subfolder) 
+                    ? GetLogSubfolders(baseFolder) 
+                    : new List<string>();
+                return Results.Ok(new { folder, files = new List<LogFileDto>(), subfolders = emptySubfolders });
+            }
+            
+            // Get log files matching the pattern
+            var files = Directory.GetFiles(folder, pattern ?? "*.log", SearchOption.TopDirectoryOnly)
+                .Select(path => new LogFileDto(
+                    Path.GetFileName(path),
+                    new FileInfo(path).Length,
+                    File.GetLastWriteTimeUtc(path)))
+                .OrderByDescending(file => file.LastModified)
+                .ToList();
 
-            return Results.Ok(new { folder, files });
+            // Get subfolders only at root level
+            var resultSubfolders = string.IsNullOrWhiteSpace(subfolder) ? GetLogSubfolders(baseFolder) : new List<string>();
+
+            return Results.Ok(new { folder, files, subfolders = resultSubfolders });
+        });
+        
+        group.MapGet("/subfolders", (IOptionsMonitor<WeaselHostOptions> options) =>
+        {
+            var baseFolder = EnsureLogFolder(options.CurrentValue.Logging.Folder);
+            var subfolders = GetLogSubfolders(baseFolder);
+            return Results.Ok(subfolders);
         });
 
-        group.MapGet("/{fileName}", (string fileName, IOptionsMonitor<WeaselHostOptions> options) =>
+        group.MapGet("/{fileName}", (string fileName, IOptionsMonitor<WeaselHostOptions> options, string? subfolder) =>
         {
-            var folder = EnsureLogFolder(options.CurrentValue.Logging.Folder);
+            var baseFolder = EnsureLogFolder(options.CurrentValue.Logging.Folder);
+            
+            // Determine target folder - same logic as GET /
+            string folder;
+            if (string.IsNullOrWhiteSpace(subfolder))
+            {
+                folder = baseFolder;
+            }
+            else
+            {
+                var parts = subfolder.Split('/', StringSplitOptions.RemoveEmptyEntries)
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Select(p => Path.GetFileName(p))
+                    .ToArray();
+                
+                if (parts.Length == 0)
+                {
+                    folder = baseFolder;
+                }
+                else if (parts.Length == 1)
+                {
+                    if (parts[0].Equals("Archive", StringComparison.OrdinalIgnoreCase))
+                    {
+                        folder = Path.Combine(baseFolder, "Archive");
+                    }
+                    else
+                    {
+                        folder = Path.Combine(baseFolder, parts[0]);
+                    }
+                }
+                else if (parts.Length == 2 && parts[1].Equals("Archive", StringComparison.OrdinalIgnoreCase))
+                {
+                    folder = Path.Combine(baseFolder, parts[0], "Archive");
+                }
+                else
+                {
+                    return Results.BadRequest("Invalid subfolder path.");
+                }
+            }
+            
             var safeName = Path.GetFileName(fileName);
             if (string.IsNullOrWhiteSpace(safeName))
             {
@@ -677,7 +803,8 @@ public static class Program
                 enabled = vnc.Enabled,
                 port = vnc.Port,
                 allowRemote = vnc.AllowRemote,
-                hasPassword = !string.IsNullOrWhiteSpace(vnc.Password)
+                hasPassword = !string.IsNullOrWhiteSpace(vnc.Password),
+                autoStart = vnc.AutoStart
             });
         });
 
@@ -689,6 +816,7 @@ public static class Program
                 Enabled = request.Enabled,
                 Port = request.Port,
                 AllowRemote = request.AllowRemote,
+                AutoStart = request.AutoStart ?? currentVnc.AutoStart,
                 // Only update password if provided
                 Password = string.IsNullOrWhiteSpace(request.Password) ? currentVnc.Password : request.Password
             };
@@ -703,7 +831,14 @@ public static class Program
             // If VNC was disabled and is now enabled, start the server
             else if (!currentVnc.Enabled && request.Enabled)
             {
-                await vncService.StartAsync(vncOptions.Port, vncOptions.Password, vncOptions.AllowRemote, cancellationToken);
+                try
+                {
+                    await vncService.StartAsync(vncOptions.Port, vncOptions.Password, vncOptions.AllowRemote, cancellationToken);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
             }
             // If VNC is running and settings changed, restart it
             else if (request.Enabled)
@@ -714,7 +849,14 @@ public static class Program
                     await vncService.StopAsync(cancellationToken);
                     await Task.Delay(500, cancellationToken); // Brief delay before restart
                 }
-                await vncService.StartAsync(vncOptions.Port, vncOptions.Password, vncOptions.AllowRemote, cancellationToken);
+                try
+                {
+                    await vncService.StartAsync(vncOptions.Port, vncOptions.Password, vncOptions.AllowRemote, cancellationToken);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    return Results.BadRequest(new { error = ex.Message });
+                }
             }
 
             return Results.Ok(new
@@ -722,7 +864,8 @@ public static class Program
                 enabled = vncOptions.Enabled,
                 port = vncOptions.Port,
                 allowRemote = vncOptions.AllowRemote,
-                hasPassword = !string.IsNullOrWhiteSpace(vncOptions.Password)
+                hasPassword = !string.IsNullOrWhiteSpace(vncOptions.Password),
+                autoStart = vncOptions.AutoStart
             });
         });
 
@@ -734,8 +877,15 @@ public static class Program
                 return Results.BadRequest(new { error = "VNC is not enabled. Please enable it in settings first." });
             }
 
-            await vncService.StartAsync(vnc.Port, vnc.Password, vnc.AllowRemote, cancellationToken);
-            return Results.Ok(new { message = "VNC server started" });
+            try
+            {
+                await vncService.StartAsync(vnc.Port, vnc.Password, vnc.AllowRemote, cancellationToken);
+                return Results.Ok(new { message = "VNC server started" });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
         });
 
         group.MapPost("/stop", async (IVncService vncService, CancellationToken cancellationToken) =>
@@ -743,22 +893,218 @@ public static class Program
             await vncService.StopAsync(cancellationToken);
             return Results.Ok(new { message = "VNC server stopped" });
         });
+
+        // WebSocket endpoint for noVNC client
+        group.MapGet("/ws", async (HttpContext context, IOptionsMonitor<WeaselHostOptions> optionsMonitor, IVncService vncService, ILoggerFactory loggerFactory) =>
+        {
+            if (!context.WebSockets.IsWebSocketRequest)
+            {
+                return Results.BadRequest("WebSocket request required");
+            }
+
+            var logger = loggerFactory.CreateLogger("VncWebSocket");
+            var query = context.Request.Query;
+            var targetHost = query["host"].ToString();
+            var targetPortStr = query["port"].ToString();
+
+            var status = await vncService.GetStatusAsync();
+            if (!status.IsRunning)
+            {
+                logger.LogWarning("VNC WebSocket connection attempted but server is not running");
+                return Results.BadRequest("VNC server is not running");
+            }
+
+            // Use localhost for the VNC server connection since it's on the same machine
+            // The targetHost from query is for display purposes only
+            var vncHost = "127.0.0.1";
+            var vncPort = status.Port;
+
+            if (!string.IsNullOrEmpty(targetPortStr) && int.TryParse(targetPortStr, out var requestedPort))
+            {
+                if (requestedPort != vncPort)
+                {
+                    logger.LogWarning("VNC WebSocket connection attempted with wrong port: {AttemptedPort}, expected {ExpectedPort}", requestedPort, vncPort);
+                    return Results.BadRequest("Invalid VNC port");
+                }
+            }
+
+            logger.LogInformation("Accepting VNC WebSocket connection, proxying to {Host}:{Port}", vncHost, vncPort);
+            var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+            await ProxyWebSocketToVnc(webSocket, vncHost, vncPort, context.RequestAborted, logger);
+            return Results.Empty;
+        });
+    }
+
+    private static async Task ProxyWebSocketToVnc(WebSocket webSocket, string targetHost, int targetPort, CancellationToken cancellationToken, ILogger logger)
+    {
+        TcpClient? vncClient = null;
+        NetworkStream? vncStream = null;
+        try
+        {
+            logger.LogInformation("Connecting to VNC server at {Host}:{Port}", targetHost, targetPort);
+            // Connect to VNC server
+            vncClient = new TcpClient();
+            await vncClient.ConnectAsync(targetHost, targetPort);
+            vncStream = vncClient.GetStream();
+            logger.LogInformation("Connected to VNC server, starting proxy");
+
+            // Start bidirectional proxying
+            var receiveFromVnc = Task.Run(async () =>
+            {
+                var buffer = new byte[4096];
+                long totalBytesSent = 0;
+                try
+                {
+                    while (!cancellationToken.IsCancellationRequested && vncClient!.Connected && webSocket.State == WebSocketState.Open)
+                    {
+                        var bytesRead = await vncStream!.ReadAsync(buffer, cancellationToken);
+                        if (bytesRead == 0)
+                        {
+                            logger.LogInformation("VNC server closed connection (0 bytes read)");
+                            break;
+                        }
+                        if (webSocket.State == WebSocketState.Open)
+                        {
+                            totalBytesSent += bytesRead;
+                            // Log first few messages in detail for debugging
+                            if (totalBytesSent <= 200)
+                            {
+                                logger.LogInformation("Forwarding {Bytes} bytes from VNC server to WebSocket client (total: {Total}). First bytes: {Hex}", 
+                                    bytesRead, totalBytesSent, BitConverter.ToString(buffer, 0, Math.Min(bytesRead, 20)));
+                            }
+                            else
+                            {
+                                logger.LogDebug("Forwarding {Bytes} bytes from VNC server to WebSocket client (total: {Total})", bytesRead, totalBytesSent);
+                            }
+                            await webSocket.SendAsync(
+                                new ArraySegment<byte>(buffer, 0, bytesRead),
+                                WebSocketMessageType.Binary,
+                                true,
+                                cancellationToken);
+                        }
+                    }
+                    logger.LogInformation("VNC to WebSocket proxy ended. Total bytes sent: {Total}", totalBytesSent);
+                }
+                catch (OperationCanceledException)
+                {
+                    logger.LogInformation("VNC read operation cancelled");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error receiving from VNC server");
+                }
+            }, cancellationToken);
+
+            var receiveFromWebSocket = Task.Run(async () =>
+            {
+                var buffer = new byte[4096];
+                long totalBytesReceived = 0;
+                try
+                {
+                    while (!cancellationToken.IsCancellationRequested && webSocket.State == WebSocketState.Open && vncClient!.Connected)
+                    {
+                        var result = await webSocket.ReceiveAsync(
+                            new ArraySegment<byte>(buffer),
+                            cancellationToken);
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            logger.LogInformation("WebSocket client closed connection");
+                            break;
+                        }
+                        if (vncClient.Connected)
+                        {
+                            totalBytesReceived += result.Count;
+                            // Log first few messages in detail for debugging
+                            if (totalBytesReceived <= 200)
+                            {
+                                logger.LogInformation("Forwarding {Bytes} bytes from WebSocket client to VNC server (total: {Total}). First bytes: {Hex}", 
+                                    result.Count, totalBytesReceived, BitConverter.ToString(buffer, 0, Math.Min(result.Count, 20)));
+                            }
+                            else
+                            {
+                                logger.LogDebug("Forwarding {Bytes} bytes from WebSocket client to VNC server (total: {Total})", result.Count, totalBytesReceived);
+                            }
+                            await vncStream!.WriteAsync(new ArraySegment<byte>(buffer, 0, result.Count), cancellationToken);
+                            await vncStream.FlushAsync(cancellationToken);
+                        }
+                    }
+                    logger.LogInformation("WebSocket to VNC proxy ended. Total bytes received: {Total}", totalBytesReceived);
+                }
+                catch (OperationCanceledException)
+                {
+                    logger.LogInformation("WebSocket read operation cancelled");
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error receiving from WebSocket client");
+                }
+            }, cancellationToken);
+
+            await Task.WhenAny(receiveFromVnc, receiveFromWebSocket);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error in VNC WebSocket proxy");
+            throw;
+        }
+        finally
+        {
+            logger.LogInformation("Closing VNC WebSocket proxy connection");
+            vncStream?.Close();
+            vncClient?.Close();
+            if (webSocket.State == WebSocketState.Open)
+            {
+                try
+                {
+                    await webSocket.CloseAsync(
+                        WebSocketCloseStatus.NormalClosure,
+                        "Connection closed",
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, "Error closing WebSocket");
+                }
+            }
+        }
     }
 
     private static string EnsureLogFolder(string? configuredFolder)
     {
         var folder = string.IsNullOrWhiteSpace(configuredFolder)
-            ? Path.Combine(AppContext.BaseDirectory, "logs")
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Weasel", "Logs")
             : configuredFolder;
+        
+        // Expand environment variables in the path (e.g., %APPDATA%)
+        if (!string.IsNullOrWhiteSpace(folder))
+        {
+            folder = Environment.ExpandEnvironmentVariables(folder);
+        }
+        
         Directory.CreateDirectory(folder);
         return folder;
+    }
+    
+    private static List<string> GetLogSubfolders(string baseFolder)
+    {
+        if (!Directory.Exists(baseFolder))
+        {
+            return new List<string>();
+        }
+        
+        // Return component folders and Archive folder
+        return Directory.GetDirectories(baseFolder)
+            .Select(d => Path.GetFileName(d)!)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .OrderBy(name => name == "Archive" ? "" : name) // Archive first, then alphabetically
+            .ToList();
     }
 
     private record LogFileDto(string Name, long SizeBytes, DateTime LastModified);
 
     private record SecurityUpdateRequest(bool RequireAuthentication, string? Password);
 
-    private record VncConfigRequest(bool Enabled, int Port, bool AllowRemote, string? Password);
+    private record VncConfigRequest(bool Enabled, int Port, bool AllowRemote, string? Password, bool? AutoStart);
 
     private record TestEmailRequest(string Recipient);
 

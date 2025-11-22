@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import useSWR from "swr";
-import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square, Monitor as MonitorIcon, Eye as EyeIcon, Shield } from "lucide-react";
+import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square, Monitor as MonitorIcon, Eye as EyeIcon, Shield, ChevronDown, ChevronUp, Edit2, ArrowUp, ArrowDown, Search as SearchIcon, Archive } from "lucide-react";
 import { api, download } from "../api/client";
 import { FileSystemItem, CaptureSettings, LogsResponse, LogFileInfo, DiskMonitoringConfig, DiskMonitoringStatus, DriveAlertStatus, DriveMonitorConfig, FolderMonitorOptions, ProcessInfo, ApplicationMonitorConfig, MonitoredApplication, VncConfig, VncStatus } from "../types";
 import { formatBytes, formatDate, formatPath } from "../utils/format";
@@ -9,13 +9,21 @@ import FolderPicker from "../components/FolderPicker";
 import Table, { TableColumn } from "../components/Table";
 import { useTranslation } from "../i18n/i18n";
 import { useTheme, type Theme } from "../theme";
+import { showToast } from "../App";
+import ConfirmDialog from "../components/ConfirmDialog";
 
-type ToolsTab = "screenshots" | "logs" | "disk-monitoring" | "application-monitor" | "remote-desktop";
+type ToolsTab = "application-monitor" | "storage-monitor" | "vnc" | "screenshots" | "logs";
 
 type TranslateFn = (key: string, replacements?: Record<string, string | number>) => string;
 
 const captureFetcher = () => api<CaptureSettings>("/api/settings/capture");
-const logsFetcher = () => api<LogsResponse>("/api/logs");
+const logsFetcher = (subfolder?: string) => {
+  const url = new URL("/api/logs", window.location.origin);
+  if (subfolder) {
+    url.searchParams.set("subfolder", subfolder);
+  }
+  return api<LogsResponse>(url.toString());
+};
 
 const buildRawUrl = (path: string) => {
   const url = new URL("/api/fs/raw", window.location.origin);
@@ -23,8 +31,11 @@ const buildRawUrl = (path: string) => {
   return url.toString();
 };
 
-const openLogDownload = (fileName: string) => {
+const openLogDownload = (fileName: string, subfolder?: string | null) => {
   const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
+  if (subfolder) {
+    url.searchParams.set("subfolder", subfolder);
+  }
   window.open(url.toString(), "_blank");
 };
 
@@ -36,6 +47,19 @@ export default function Tools() {
   const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [isSavingCapture, setIsSavingCapture] = useState(false);
   const [selectedScreenshots, setSelectedScreenshots] = useState<Set<string>>(new Set());
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant?: "danger" | "warning" | "info";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    variant: "info"
+  });
 
   const { data: captureSettings, mutate: mutateCapture } = useSWR("capture-settings", captureFetcher);
   const folder = captureSettings?.folder ?? "";
@@ -69,18 +93,33 @@ export default function Tools() {
     return files.filter((f) => f.name.toLowerCase().endsWith(".png"));
   }, [files]);
 
+  const [selectedLogSubfolder, setSelectedLogSubfolder] = useState<string | null>(null);
+  const [logSortConfig, setLogSortConfig] = useState<{ key: 'name' | 'size' | 'date'; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
+  const [logFolderSortConfig, setLogFolderSortConfig] = useState<{ key: 'name' | 'date'; direction: 'asc' | 'desc' }>({ key: 'name', direction: 'asc' });
+  const [logSearchQuery, setLogSearchQuery] = useState("");
+  const [logLeftPanelWidth, setLogLeftPanelWidth] = useState(33);
+  const [isLogResizing, setIsLogResizing] = useState(false);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+  
   const {
     data: logsResponse,
     isLoading: logsLoading,
     mutate: refreshLogs
-  } = useSWR("logs", logsFetcher, { refreshInterval: 15000 });
+  } = useSWR(["logs", selectedLogSubfolder], () => logsFetcher(selectedLogSubfolder ?? undefined), { refreshInterval: 15000 });
 
   const logFiles = logsResponse?.files ?? [];
   const logFolder = logsResponse?.folder ?? "";
+  const logSubfolders = logsResponse?.subfolders ?? [];
 
   const { data: logContent, isLoading: logContentLoading } = useSWR(
-    selectedLog ? ["log", selectedLog] : null,
-    ([, fileName]: [string, string]) => api<string>(`/api/logs/${encodeURIComponent(fileName)}`),
+    selectedLog ? ["log", selectedLog, selectedLogSubfolder] : null,
+    ([, fileName, subfolder]: [string, string, string | null]) => {
+      const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
+      if (subfolder) {
+        url.searchParams.set("subfolder", subfolder);
+      }
+      return api<string>(url.toString());
+    },
     { 
       revalidateOnFocus: true,
       refreshInterval: 2000 // Auto-refresh every 2 seconds for tailing
@@ -92,6 +131,109 @@ export default function Tools() {
       setSelectedLog(logFiles[0].name);
     }
   }, [selectedLog, logFiles]);
+
+  // Log resizing logic
+  useEffect(() => {
+    if (!isLogResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!logContainerRef.current) return;
+      const containerRect = logContainerRef.current.getBoundingClientRect();
+      const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+      const clampedWidth = Math.max(20, Math.min(60, newWidth));
+      setLogLeftPanelWidth(clampedWidth);
+      localStorage.setItem('weasel.logs.leftPanelWidth', clampedWidth.toString());
+    };
+
+    const handleMouseUp = () => {
+      setIsLogResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isLogResizing]);
+
+  // Load saved panel width
+  useEffect(() => {
+    const saved = localStorage.getItem('weasel.logs.leftPanelWidth');
+    if (saved) {
+      setLogLeftPanelWidth(parseInt(saved));
+    }
+  }, []);
+
+  // Log sorting and filtering
+  const sortedLogFolders = useMemo(() => {
+    const folders = [...logSubfolders];
+    if (selectedLogSubfolder && !selectedLogSubfolder.includes('/Archive')) {
+      // Add Archive folder if not in Archive
+      folders.push(`${selectedLogSubfolder}/Archive`);
+    }
+    return folders.sort((a, b) => {
+      let comparison = 0;
+      switch (logFolderSortConfig.key) {
+        case 'name':
+          comparison = a.localeCompare(b);
+          break;
+        case 'date':
+          // For folders, we can't really sort by date, so just use name
+          comparison = a.localeCompare(b);
+          break;
+      }
+      return logFolderSortConfig.direction === 'asc' ? comparison : -comparison;
+    });
+  }, [logSubfolders, selectedLogSubfolder, logFolderSortConfig]);
+
+  const filteredLogFiles = useMemo(() => {
+    if (!Array.isArray(logFiles)) return [];
+    if (!logSearchQuery) return logFiles;
+    const query = logSearchQuery.toLowerCase();
+    return logFiles.filter((file) => file.name.toLowerCase().includes(query));
+  }, [logFiles, logSearchQuery]);
+
+  const sortedLogFiles = useMemo(() => {
+    return [...filteredLogFiles].sort((a, b) => {
+      let comparison = 0;
+      switch (logSortConfig.key) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case 'size':
+          comparison = a.sizeBytes - b.sizeBytes;
+          break;
+        case 'date':
+          comparison = new Date(a.lastModified).getTime() - new Date(b.lastModified).getTime();
+          break;
+      }
+      return logSortConfig.direction === 'asc' ? comparison : -comparison;
+    });
+  }, [filteredLogFiles, logSortConfig]);
+
+  const handleLogSort = (key: 'name' | 'size' | 'date') => {
+    setLogSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const handleLogFolderSort = (key: 'name' | 'date') => {
+    setLogFolderSortConfig(current => ({
+      key,
+      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
+    }));
+  };
+
+  const startLogResizing = () => {
+    setIsLogResizing(true);
+  };
+  
+  useEffect(() => {
+    // Clear selected log when subfolder changes
+    setSelectedLog(null);
+  }, [selectedLogSubfolder]);
 
   useEffect(() => {
     return () => {
@@ -105,21 +247,39 @@ export default function Tools() {
     setPreview({ path: file.fullPath, url: buildRawUrl(file.fullPath) });
   };
 
+  const [screenshotToDelete, setScreenshotToDelete] = useState<FileSystemItem | null>(null);
+
   const deleteScreenshot = async (file: FileSystemItem) => {
-    if (!window.confirm(t("tools.screenshots.deleteConfirm", { name: file.name }))) return;
-    const url = new URL("/api/fs", window.location.origin);
-    url.searchParams.set("path", file.fullPath);
-    await api(url.toString(), { method: "DELETE" });
-    if (preview?.path === file.fullPath) {
-      URL.revokeObjectURL(preview.url);
-      setPreview(null);
-    }
-    setSelectedScreenshots(prev => {
-      const next = new Set(prev);
-      next.delete(file.fullPath);
-      return next;
+    setScreenshotToDelete(file);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete Screenshot",
+      message: t("tools.screenshots.deleteConfirm", { name: file.name }),
+      onConfirm: async () => {
+        if (!screenshotToDelete) return;
+        try {
+          const url = new URL("/api/fs", window.location.origin);
+          url.searchParams.set("path", screenshotToDelete.fullPath);
+          await api(url.toString(), { method: "DELETE" });
+          if (preview?.path === screenshotToDelete.fullPath) {
+            URL.revokeObjectURL(preview.url);
+            setPreview(null);
+          }
+          setSelectedScreenshots(prev => {
+            const next = new Set(prev);
+            next.delete(screenshotToDelete.fullPath);
+            return next;
+          });
+          await mutate?.();
+          showToast("Screenshot deleted successfully", "success");
+          setScreenshotToDelete(null);
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        } catch (error) {
+          showToast(`Failed to delete screenshot: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+        }
+      },
+      variant: "danger"
     });
-    await mutate?.();
   };
 
   const toggleScreenshotSelection = (fullPath: string) => {
@@ -179,7 +339,7 @@ export default function Tools() {
       
       setSelectedScreenshots(new Set());
     } catch (err) {
-      alert(`Failed to download screenshots: ${err instanceof Error ? err.message : String(err)}`);
+      showToast(`Failed to download screenshots: ${err instanceof Error ? err.message : String(err)}`, "error");
     }
   };
 
@@ -187,7 +347,11 @@ export default function Tools() {
     if (selectedScreenshots.size === 0) return;
     
     const count = selectedScreenshots.size;
-    if (!window.confirm(`Delete ${count} screenshot${count > 1 ? 's' : ''}?`)) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete Screenshots",
+      message: `Delete ${count} screenshot${count > 1 ? 's' : ''}?`,
+      onConfirm: async () => {
     
     try {
       const paths = Array.from(selectedScreenshots);
@@ -200,11 +364,17 @@ export default function Tools() {
           setPreview(null);
         }
       }
-      setSelectedScreenshots(new Set());
-      await mutate?.();
-    } catch (err) {
-      alert(`Failed to delete screenshots: ${err instanceof Error ? err.message : String(err)}`);
-    }
+          setSelectedScreenshots(new Set());
+          await mutate?.();
+          showToast(`Deleted ${count} screenshot${count > 1 ? 's' : ''} successfully`, "success");
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        } catch (err) {
+          showToast(`Failed to delete screenshots: ${err instanceof Error ? err.message : String(err)}`, "error");
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      },
+      variant: "danger"
+    });
   };
 
   const takeScreenshot = async () => {
@@ -226,20 +396,21 @@ export default function Tools() {
         })
       });
       await mutateCapture();
-      alert(t("tools.screenshots.saveSuccess"));
+      showToast(t("tools.screenshots.saveSuccess"), "success");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      alert(t("tools.screenshots.saveFailure", { message }));
+      showToast(t("tools.screenshots.saveFailure", { message }), "error");
     } finally {
       setIsSavingCapture(false);
     }
   };
 
   const toolsTabs: { key: ToolsTab; label: string; icon: React.ReactNode }[] = [
+    { key: "application-monitor", label: t("tools.tabs.appMonitor"), icon: <Monitor size={16} /> },
+    { key: "storage-monitor", label: "Storage Monitor", icon: <HardDrive size={16} /> },
+    { key: "vnc", label: "VNC", icon: <MonitorIcon size={16} /> },
     { key: "screenshots", label: t("tools.tabs.screenshots"), icon: <Camera size={16} /> },
-    { key: "logs", label: t("tools.tabs.logs"), icon: <FileText size={16} /> },
-    { key: "disk-monitoring", label: t("tools.tabs.disk"), icon: <HardDrive size={16} /> },
-    { key: "application-monitor", label: t("tools.tabs.appMonitor"), icon: <Monitor size={16} /> }
+    { key: "logs", label: t("tools.tabs.logs"), icon: <FileText size={16} /> }
   ];
 
   return (
@@ -455,77 +626,211 @@ export default function Tools() {
 
       {tab === "logs" && (
         <div className="panel space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 className="panel-title mb-1">{t("tools.logs.title")}</h3>
-              <p className="text-sm text-slate-400">
-                {t("tools.logs.folderLabel")}: {formatPath(logFolder) || t("tools.logs.folderEmpty")}
-              </p>
+          {/* Breadcrumbs */}
+          <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded border border-slate-800 overflow-hidden">
+            <span className="text-slate-500 flex-shrink-0">{t("common.path")}:</span>
+            <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
+              <button
+                className="text-sm font-medium text-sky-400 hover:text-sky-300 hover:underline flex-shrink-0"
+                onClick={() => {
+                  setSelectedLogSubfolder(null);
+                  setSelectedLog(null);
+                }}
+                title="Go to root"
+              >
+                Logs
+              </button>
+              {selectedLogSubfolder && selectedLogSubfolder.split('/').filter(Boolean).map((segment, index, arr) => {
+                const pathUpToSegment = arr.slice(0, index + 1).join('/');
+                const isLast = index === arr.length - 1;
+                return (
+                  <div key={index} className="flex items-center gap-1 flex-shrink-0 min-w-0">
+                    <span className="text-slate-500 flex-shrink-0">/</span>
+                    <button
+                      className={`text-sm font-medium truncate max-w-[150px] ${isLast
+                        ? "text-white"
+                        : "text-sky-400 hover:text-sky-300 hover:underline"
+                        }`}
+                      onClick={() => {
+                        if (!isLast) {
+                          setSelectedLogSubfolder(pathUpToSegment);
+                          setSelectedLog(null);
+                        }
+                      }}
+                      disabled={isLast}
+                      title={pathUpToSegment}
+                    >
+                      {segment}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-            <button className="btn-outline" onClick={() => refreshLogs()}>
-              <RefreshCw size={16} /> {t("common.refresh")}
-            </button>
+            <div className="flex gap-2 flex-shrink-0">
+              <button className="btn-outline" onClick={() => refreshLogs()}>
+                <RefreshCw size={16} /> {t("common.refresh")}
+              </button>
+            </div>
           </div>
-          {logsLoading && <p className="text-sm text-slate-400">{t("tools.logs.loading")}</p>}
-          {!logsLoading && logFiles.length === 0 && (
-            <div className="text-sm text-slate-400 flex items-center gap-2">
-              <FileText size={16} />
-              {t("tools.logs.empty")}
-            </div>
-          )}
 
-          {logFiles.length > 0 && (
-            <div className="grid gap-4 md:grid-cols-[260px,1fr]">
-              <div className="space-y-2">
-                {Array.isArray(logFiles) && logFiles.map((file) => (
-                  <button
+          {/* Two-panel layout */}
+          <div ref={logContainerRef} className="flex flex-row gap-2" style={{ height: 'calc(100vh - 200px)', minHeight: '600px' }}>
+            {/* Folders Panel (Left) */}
+            <div className="panel flex flex-col overflow-hidden" style={{ width: `${logLeftPanelWidth}%`, minWidth: '250px' }}>
+              <div className="flex items-center justify-between mb-2 flex-shrink-0">
+                <h3 className="panel-title mb-0">Folders</h3>
+                <div className="flex items-center gap-4 text-xs text-slate-400">
+                  <button className="hover:text-white flex items-center gap-1" onClick={() => handleLogFolderSort('name')}>
+                    Name {logFolderSortConfig.key === 'name' && (logFolderSortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                  </button>
+                </div>
+              </div>
+              <div className="divide-y divide-slate-800 overflow-y-auto flex-1 pr-2">
+                {logsLoading && <p className="py-4 text-sm text-slate-400">Loading…</p>}
+                {!logsLoading && sortedLogFolders.length === 0 && (
+                  <p className="py-4 text-sm text-slate-400">No folders</p>
+                )}
+                {!logsLoading && sortedLogFolders.map((folder) => {
+                  const isArchive = folder.toLowerCase().includes('archive');
+                  const folderName = folder.split('/').pop() || folder;
+                  return (
+                    <div
+                      key={folder}
+                      className={`item-row hover:bg-slate-800/50 cursor-pointer ${selectedLogSubfolder === folder ? "bg-slate-800/70" : ""
+                        }`}
+                      onClick={() => {
+                        setSelectedLogSubfolder(folder);
+                        setSelectedLog(null);
+                      }}
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        {isArchive ? <Archive size={18} className="text-amber-300 flex-shrink-0" /> : <Folder size={18} className="text-amber-300 flex-shrink-0" />}
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{folderName}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Resizer */}
+            <div
+              className="w-2 cursor-col-resize bg-slate-900 hover:bg-sky-500/50 transition-colors flex items-center justify-center z-10 flex-shrink-0 rounded"
+              onMouseDown={startLogResizing}
+            >
+              <div className="h-8 w-1 bg-slate-600 rounded-full" />
+            </div>
+
+            {/* Files Panel (Right) */}
+            <div className="panel flex-1 flex flex-col overflow-hidden" style={{ minWidth: '400px' }}>
+              <div className="flex items-center justify-between mb-2 flex-shrink-0">
+                <h3 className="panel-title mb-0">Log Files</h3>
+                <div className="flex items-center gap-4 text-xs text-slate-400">
+                  <button className="hover:text-white flex items-center gap-1" onClick={() => handleLogSort('name')}>
+                    Name {logSortConfig.key === 'name' && (logSortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                  </button>
+                  <button className="hover:text-white flex items-center gap-1" onClick={() => handleLogSort('size')}>
+                    Size {logSortConfig.key === 'size' && (logSortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                  </button>
+                  <button className="hover:text-white flex items-center gap-1" onClick={() => handleLogSort('date')}>
+                    Date {logSortConfig.key === 'date' && (logSortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
+                  </button>
+                </div>
+              </div>
+              
+              {/* Search */}
+              <div className="mb-2 flex-shrink-0">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Search log files..."
+                    value={logSearchQuery}
+                    onChange={(e) => setLogSearchQuery(e.target.value)}
+                    className="w-full px-3 py-2 pl-9 bg-slate-900/50 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
+                  />
+                  <SearchIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                </div>
+              </div>
+
+              <div className="divide-y divide-slate-800 overflow-y-auto flex-1 pr-2">
+                {logsLoading && <p className="py-4 text-sm text-slate-400">Loading…</p>}
+                {!logsLoading && sortedLogFiles.length === 0 && (
+                  <p className="py-4 text-sm text-slate-400">{logSearchQuery ? "No files match your search" : "No log files"}</p>
+                )}
+                {!logsLoading && sortedLogFiles.map((file) => (
+                  <div
                     key={file.name}
-                    className={`w-full text-left item-row rounded-lg border ${selectedLog === file.name ? "border-sky-500 bg-slate-900/70" : "border-slate-800 bg-slate-900/30"
+                    className={`item-row hover:bg-slate-800/50 cursor-pointer group ${selectedLog === file.name ? "bg-slate-800/70" : ""
                       }`}
                     onClick={() => setSelectedLog(file.name)}
                   >
-                    <div>
-                      <p className="font-semibold text-white">{file.name}</p>
-                      <p className="text-xs text-slate-400">{formatDate(file.lastModified)}</p>
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <FileText size={18} className="text-blue-300 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate">{file.name}</p>
+                        <p className="text-xs text-slate-400">
+                          {formatDate(file.lastModified)} • {formatBytes(file.sizeBytes)}
+                        </p>
+                      </div>
                     </div>
-                    <span className="text-xs text-slate-400">{formatBytes(file.sizeBytes)}</span>
-                  </button>
-                ))}
-              </div>
-              <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-3 min-h-[250px]">
-                {selectedLog && (
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="font-semibold text-white">{selectedLog}</p>
-                    <div className="flex gap-2">
-                      <button className="btn-outline" onClick={() => openLogDownload(selectedLog!)}>
-                        {t("tools.logs.download")}
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        className="icon-btn" 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          openLogDownload(file.name, selectedLogSubfolder); 
+                        }} 
+                        title="Download"
+                      >
+                        <Download size={14} />
                       </button>
                     </div>
                   </div>
-                )}
-                {!selectedLog && <p className="text-sm text-slate-400">{t("tools.logs.selectPrompt")}</p>}
-                {selectedLog && (
-                  <>
-                    {logContentLoading && <p className="text-sm text-slate-400">{t("tools.logs.loadingEntry")}</p>}
-                    {!logContentLoading && (
-                      <pre className="text-xs text-slate-300 whitespace-pre-wrap max-h-[360px] overflow-y-auto font-mono">
-                        {logContent}
-                      </pre>
-                    )}
-                    <div className="mt-2 text-xs text-slate-500 flex items-center gap-2">
-                      <RefreshCw size={12} className="animate-spin" />
-                      <span>Tailing log (auto-refreshing every 2 seconds)</span>
-                    </div>
-                  </>
-                )}
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Log Content Viewer */}
+          {selectedLog && (
+            <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="font-semibold text-white">{selectedLog}</p>
+                <div className="flex gap-2">
+                  <button className="btn-outline" onClick={() => openLogDownload(selectedLog, selectedLogSubfolder)}>
+                    <Download size={16} /> {t("tools.logs.download")}
+                  </button>
+                </div>
+              </div>
+              {logContentLoading && <p className="text-sm text-slate-400">{t("tools.logs.loadingEntry")}</p>}
+              {!logContentLoading && (
+                <pre className="text-xs text-slate-300 whitespace-pre-wrap max-h-[400px] overflow-y-auto font-mono bg-slate-900/50 p-3 rounded border border-slate-800">
+                  {logContent || ""}
+                </pre>
+              )}
+              <div className="mt-2 text-xs text-slate-500 flex items-center gap-2">
+                <RefreshCw size={12} className="animate-spin" />
+                <span>Tailing log (auto-refreshing every 2 seconds)</span>
               </div>
             </div>
           )}
         </div>
       )}
 
-      {tab === "disk-monitoring" && <DiskMonitoringTab t={t} theme={theme} />}
+      {tab === "storage-monitor" && <DiskMonitoringTab t={t} theme={theme} />}
       {tab === "application-monitor" && <ApplicationMonitorTab t={t} />}
+      {tab === "vnc" && <RemoteDesktopTab t={t} />}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        variant={confirmDialog.variant}
+      />
     </section>
   );
 }
@@ -581,11 +886,11 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
       });
       await refreshConfig();
       await refreshStatus();
-      alert(t("tools.disk.saveSuccess"));
+      showToast(t("tools.disk.saveSuccess"), "success");
     } catch (err) {
       console.error("Failed to save disk monitoring config:", err);
       const message = err instanceof Error ? err.message : String(err);
-      alert(t("tools.disk.saveFailure", { message }));
+      showToast(t("tools.disk.saveFailure", { message }), "error");
     } finally {
       setIsSaving(false);
     }
@@ -1019,7 +1324,38 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
   const [isSaving, setIsSaving] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
   const [currentAppIdForPicker, setCurrentAppIdForPicker] = useState<string | null>(null);
+  const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
   const { data: config, mutate: refreshConfig } = useSWR<ApplicationMonitorConfig>("application-monitor-config", () => api<ApplicationMonitorConfig>("/api/application-monitor/config"));
+  
+  // Log tailing - get the most recent log file
+  const { data: logFiles } = useSWR(
+    "application-monitor-log-files",
+    () => {
+      const url = new URL("/api/logs", window.location.origin);
+      url.searchParams.set("subfolder", "ApplicationMonitor");
+      return api<LogsResponse>(url.toString());
+    },
+    { refreshInterval: 10000 }
+  );
+
+  const latestLogFile = useMemo(() => {
+    if (!logFiles?.files || logFiles.files.length === 0) return null;
+    // Sort by name (which includes date) descending and get the first one
+    return logFiles.files.sort((a, b) => b.name.localeCompare(a.name))[0];
+  }, [logFiles]);
+
+  const { data: logContent, isLoading: logLoading } = useSWR(
+    latestLogFile ? ["application-monitor-log", latestLogFile.name] : null,
+    ([, fileName]: [string, string]) => {
+      const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
+      url.searchParams.set("subfolder", "ApplicationMonitor");
+      return api<string>(url.toString());
+    },
+    { 
+      revalidateOnFocus: true,
+      refreshInterval: 2000 // Auto-refresh every 2 seconds for tailing
+    }
+  );
 
   const [form, setForm] = useState<ApplicationMonitorConfig>({
     enabled: false,
@@ -1044,11 +1380,11 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
         body: JSON.stringify(form)
       });
       await refreshConfig();
-      alert(t("tools.app.saveSuccess"));
+      showToast(t("tools.app.saveSuccess"), "success");
     } catch (err) {
       console.error("Failed to save application monitor config:", err);
       const message = err instanceof Error ? err.message : String(err);
-      alert(t("tools.app.saveFailure", { message }));
+      showToast(t("tools.app.saveFailure", { message }), "error");
     } finally {
       setIsSaving(false);
     }
@@ -1182,58 +1518,95 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
             {form.applications.length === 0 ? (
               <p className="text-sm text-slate-400">{t("tools.app.empty")}</p>
             ) : (
-              <div className="space-y-3">
-                {Array.isArray(form.applications) && form.applications.map((app) => (
-                  <div key={app.id} className="p-4 border border-slate-800 rounded-lg space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+              <div className="space-y-2">
+                {Array.isArray(form.applications) && form.applications.map((app) => {
+                  const isExpanded = expandedApps.has(app.id);
+                  return (
+                    <div key={app.id} className="border border-slate-800 rounded-lg">
+                      {/* Compact Header - Always Visible */}
+                      <div className="flex items-center gap-2 p-2 bg-slate-900/30 hover:bg-slate-900/50">
                         <input
                           type="checkbox"
                           checked={app.enabled}
                           onChange={(e) => updateApplication(app.id, { enabled: e.target.checked })}
                           className="checkbox"
+                          onClick={(e) => e.stopPropagation()}
                         />
-                        <input
-                          type="text"
-                          className="input-text flex-1"
-                      placeholder={t("tools.app.namePlaceholder")}
-                          value={app.name}
-                          onChange={(e) => updateApplication(app.id, { name: e.target.value })}
-                        />
-                      </div>
-                      <button
-                        className="ml-2 icon-btn text-red-400"
-                        onClick={() => removeApplication(app.id)}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-
-                    <div>
-                  <label className="block text-sm text-slate-400 mb-1">{t("tools.app.executablePath")}</label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          className="input-text flex-1"
-                      placeholder={t("tools.app.executablePlaceholder")}
-                          value={formatPath(app.executablePath || "")}
-                          onChange={(e) => {
-                            // Normalize path by removing double backslashes
-                            const normalized = e.target.value.replace(/\\\\/g, '\\');
-                            updateApplication(app.id, { executablePath: normalized });
-                          }}
-                        />
+                        <span className="flex-1 text-sm font-medium text-slate-200 min-w-0 truncate">
+                          {app.name || t("tools.app.namePlaceholder")}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          {t("tools.app.checkInterval")}: {app.checkIntervalSeconds}s
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          {t("tools.app.restartDelay")}: {app.restartDelaySeconds}s
+                        </span>
                         <button
-                          className="btn-outline"
+                          className="icon-btn text-slate-400 hover:text-white"
                           onClick={() => {
-                            setCurrentAppIdForPicker(app.id);
-                            setShowFilePicker(true);
+                            setExpandedApps(prev => {
+                              const next = new Set(prev);
+                              if (next.has(app.id)) {
+                                next.delete(app.id);
+                              } else {
+                                next.add(app.id);
+                              }
+                              return next;
+                            });
                           }}
+                          title={isExpanded ? "Collapse" : "Expand"}
                         >
-                          <FolderOpen size={16} />
+                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </button>
+                        <button
+                          className="icon-btn text-red-400 hover:text-red-300"
+                          onClick={() => removeApplication(app.id)}
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
                         </button>
                       </div>
-                    </div>
+
+                      {/* Expanded Content - Only when expanded */}
+                      {isExpanded && (
+                        <div className="p-4 space-y-3 border-t border-slate-800">
+
+                          <div>
+                            <label className="block text-sm text-slate-400 mb-1">{t("tools.app.namePlaceholder")}</label>
+                            <input
+                              type="text"
+                              className="input-text w-full"
+                              placeholder={t("tools.app.namePlaceholder")}
+                              value={app.name}
+                              onChange={(e) => updateApplication(app.id, { name: e.target.value })}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-sm text-slate-400 mb-1">{t("tools.app.executablePath")}</label>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                className="input-text flex-1"
+                                placeholder={t("tools.app.executablePlaceholder")}
+                                value={formatPath(app.executablePath || "")}
+                                onChange={(e) => {
+                                  // Normalize path by removing double backslashes
+                                  const normalized = e.target.value.replace(/\\\\/g, '\\');
+                                  updateApplication(app.id, { executablePath: normalized });
+                                }}
+                              />
+                              <button
+                                className="btn-outline"
+                                onClick={() => {
+                                  setCurrentAppIdForPicker(app.id);
+                                  setShowFilePicker(true);
+                                }}
+                              >
+                                <FolderOpen size={16} />
+                              </button>
+                            </div>
+                          </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
@@ -1286,22 +1659,44 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
                       />
                     </div>
 
-                    <div>
-                  <label className="block text-sm text-slate-400 mb-1">{t("tools.app.eventLogSource")}</label>
-                      <input
-                        type="text"
-                        className="input-text"
-                    placeholder={t("tools.app.eventLogPlaceholder")}
-                        value={app.eventLogSource || ""}
-                        onChange={(e) => updateApplication(app.id, { eventLogSource: e.target.value || null })}
-                      />
-                  <p className="text-xs text-slate-500 mt-1">{t("tools.app.eventLogHint")}</p>
+                          <div>
+                            <label className="block text-sm text-slate-400 mb-1">{t("tools.app.eventLogSource")}</label>
+                            <input
+                              type="text"
+                              className="input-text w-full"
+                              placeholder={t("tools.app.eventLogPlaceholder")}
+                              value={app.eventLogSource || ""}
+                              onChange={(e) => updateApplication(app.id, { eventLogSource: e.target.value || null })}
+                            />
+                            <p className="text-xs text-slate-500 mt-1">{t("tools.app.eventLogHint")}</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
+        </div>
+      </div>
+
+      {/* Log Tailing Section */}
+      <div className="panel space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="panel-title mb-0">Application Monitor Log</h3>
+          <div className="text-xs text-slate-400">
+            {logLoading ? "Loading..." : "Tailing log (auto-refreshing every 2 seconds)"}
+          </div>
+        </div>
+        <div className="bg-slate-950 rounded border border-slate-800 p-3 max-h-96 overflow-y-auto">
+          {logLoading && <p className="text-sm text-slate-400">Loading log...</p>}
+          {!logLoading && !logContent && <p className="text-sm text-slate-400">No log content available</p>}
+          {!logLoading && logContent && (
+            <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono">
+              {logContent}
+            </pre>
+          )}
         </div>
       </div>
 
@@ -1318,46 +1713,21 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
 }
 
 function RemoteDesktopTab({ t }: { t: TranslateFn }) {
-  const [isSaving, setIsSaving] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [password, setPassword] = useState("");
 
-  const { data: config, mutate: mutateConfig } = useSWR<VncConfig>("vnc-config", () => api<VncConfig>("/api/vnc/config"));
+  const { data: config } = useSWR<VncConfig>("vnc-config", () => api<VncConfig>("/api/vnc/config"));
   const { data: status, mutate: mutateStatus } = useSWR<VncStatus>("vnc-status", () => api<VncStatus>("/api/vnc/status"), { refreshInterval: 2000 });
-
-  const handleSave = async () => {
-    if (!config) return;
-    setIsSaving(true);
-    try {
-      await api("/api/vnc/config", {
-        method: "PUT",
-        body: JSON.stringify({
-          enabled: config.enabled,
-          port: config.port,
-          allowRemote: config.allowRemote,
-          password: password || undefined
-        })
-      });
-      await mutateConfig();
-      alert(t("tools.vnc.saveSuccess"));
-    } catch (err) {
-      alert(t("tools.vnc.saveFailure", { message: err instanceof Error ? err.message : String(err) }));
-    } finally {
-      setIsSaving(false);
-      setPassword("");
-    }
-  };
 
   const handleStart = async () => {
     setIsStarting(true);
     try {
       await api("/api/vnc/start", { method: "POST" });
       await mutateStatus();
-      alert(t("tools.vnc.startSuccess"));
+      showToast(t("tools.vnc.startSuccess"), "success");
     } catch (err) {
-      alert(t("tools.vnc.startFailure", { message: err instanceof Error ? err.message : String(err) }));
+      showToast(t("tools.vnc.startFailure", { message: err instanceof Error ? err.message : String(err) }), "error");
     } finally {
       setIsStarting(false);
     }
@@ -1368,11 +1738,52 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
     try {
       await api("/api/vnc/stop", { method: "POST" });
       await mutateStatus();
-      alert(t("tools.vnc.stopSuccess"));
+      showToast(t("tools.vnc.stopSuccess"), "success");
     } catch (err) {
-      alert(t("tools.vnc.stopFailure", { message: err instanceof Error ? err.message : String(err) }));
+      showToast(t("tools.vnc.stopFailure", { message: err instanceof Error ? err.message : String(err) }), "error");
     } finally {
       setIsStopping(false);
+    }
+  };
+
+  const handleConnect = () => {
+    if (!status || !config) return;
+    
+    const host = status.allowRemote ? window.location.hostname : "127.0.0.1";
+    const port = status.port;
+    
+    // Get password - use from input field, or prompt if required but not provided
+    let connectPassword = password;
+    if (config.hasPassword && !connectPassword) {
+      const enteredPassword = prompt("VNC server requires a password. Please enter the password:");
+      if (!enteredPassword) {
+        showToast("Password is required to connect to the VNC server.", "error");
+        return; // User cancelled
+      }
+      connectPassword = enteredPassword;
+      setPassword(enteredPassword); // Store it for next time
+    }
+    
+    // Store connection params in localStorage for the popup
+    localStorage.setItem("vnc_host", host);
+    localStorage.setItem("vnc_port", port.toString());
+    if (connectPassword) {
+      localStorage.setItem("vnc_password", connectPassword);
+    } else {
+      localStorage.removeItem("vnc_password");
+    }
+    
+    // Open popup window with VNC viewer
+    const viewerUrl = `/vnc-viewer?host=${encodeURIComponent(host)}&port=${port}${connectPassword ? `&password=${encodeURIComponent(connectPassword)}` : ""}`;
+    
+    const popup = window.open(
+      viewerUrl,
+      "VNC Viewer",
+      `width=${screen.width},height=${screen.height},fullscreen=yes,resizable=yes,scrollbars=no`
+    );
+    
+    if (!popup) {
+      showToast("Popup blocked. Please allow popups for this site to connect to VNC.", "error");
     }
   };
 
@@ -1385,96 +1796,6 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
 
   return (
     <div className="space-y-4">
-      <div className="panel space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="panel-title mb-0 flex items-center gap-2">
-            <MonitorIcon size={18} /> {t("tools.vnc.title")}
-          </h3>
-          <button className="btn-primary" onClick={handleSave} disabled={isSaving}>
-            <Save size={16} /> {isSaving ? t("tools.vnc.saving") : t("tools.vnc.save")}
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="vnc-enable"
-                className="checkbox"
-                checked={config.enabled}
-                onChange={(e) => mutateConfig({ ...config, enabled: e.target.checked }, false)}
-              />
-              <label htmlFor="vnc-enable" className="text-sm text-slate-300 cursor-pointer">
-                {t("tools.vnc.enable")}
-              </label>
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="vnc-port" className="block text-sm text-slate-400 mb-1">{t("tools.vnc.port")}</label>
-            <input
-              type="number"
-              id="vnc-port"
-              min={1024}
-              max={65535}
-              className="input-text w-32"
-              value={config.port}
-              onChange={(e) => mutateConfig({ ...config, port: parseInt(e.target.value) || 5900 }, false)}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="vnc-password" className="block text-sm text-slate-400 mb-1">{t("tools.vnc.password")}</label>
-            <div className="flex gap-2">
-              <input
-                type={showPassword ? "text" : "password"}
-                id="vnc-password"
-                className="input-text flex-1"
-                placeholder={config.hasPassword ? t("tools.vnc.passwordPlaceholder") : t("tools.vnc.passwordEmpty")}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <button
-                className="btn-outline"
-                onClick={() => setShowPassword(!showPassword)}
-                title={showPassword ? t("tools.vnc.hidePassword") : t("tools.vnc.showPassword")}
-              >
-                <EyeIcon size={16} />
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">{t("tools.vnc.passwordHint")}</p>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="vnc-allow-remote"
-                className="checkbox"
-                checked={config.allowRemote}
-                onChange={(e) => mutateConfig({ ...config, allowRemote: e.target.checked }, false)}
-              />
-              <label htmlFor="vnc-allow-remote" className="text-sm text-slate-300 cursor-pointer">
-                {t("tools.vnc.allowRemote")}
-              </label>
-            </div>
-          </div>
-
-          {config.allowRemote && (
-            <div className="bg-amber-900/20 border border-amber-500/50 rounded-lg p-3">
-              <div className="flex items-start gap-2">
-                <Shield size={16} className="text-amber-400 mt-0.5 flex-shrink-0" />
-                <div className="text-sm text-amber-200">
-                  <p className="font-semibold mb-1">{t("tools.vnc.securityWarning")}</p>
-                  <p>{t("tools.vnc.securityWarningText")}</p>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
       <div className="panel space-y-4">
         <h3 className="panel-title mb-0">{t("tools.vnc.statusTitle")}</h3>
 
@@ -1504,13 +1825,23 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
           )}
 
           <div className="flex gap-2 pt-2">
-            <button
-              className="btn-primary flex-1"
-              onClick={handleStart}
-              disabled={isStarting || isStopping || status?.isRunning || !config.enabled}
-            >
-              {isStarting ? t("tools.vnc.starting") : t("tools.vnc.start")}
-            </button>
+            {!status?.isRunning ? (
+              <button
+                className="btn-primary flex-1"
+                onClick={handleStart}
+                disabled={isStarting || isStopping || !config.enabled}
+              >
+                {isStarting ? t("tools.vnc.starting") : "Start Server"}
+              </button>
+            ) : (
+              <button
+                className="btn-primary flex-1"
+                onClick={handleConnect}
+                disabled={!status.isRunning}
+              >
+                <EyeIcon size={16} /> Connect
+              </button>
+            )}
             <button
               className="btn-outline flex-1"
               onClick={handleStop}

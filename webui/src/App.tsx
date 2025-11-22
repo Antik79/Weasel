@@ -9,8 +9,19 @@ import PowerControls from "./sections/PowerControls";
 import Settings from "./sections/Settings";
 import Tools from "./sections/Tools";
 import Login, { getAuthToken, clearAuthToken } from "./components/Login";
-import { api } from "./api/client";
+import VncViewerPage from "./pages/VncViewer";
+import { api, getSystemVersion } from "./api/client";
 import { SystemStatus } from "./types";
+import ToastContainer, { useToast } from "./components/Toast";
+
+// Global toast context
+let globalToast: ((message: string, type?: "success" | "error" | "info" | "warning", duration?: number) => void) | null = null;
+
+export function showToast(message: string, type: "success" | "error" | "info" | "warning" = "info", duration?: number) {
+  if (globalToast) {
+    globalToast(message, type, duration);
+  }
+}
 
 type Tab = "files" | "packages" | "system" | "tools" | "settings";
 
@@ -48,9 +59,24 @@ const tabConfig: Record<
 };
 
 export default function App() {
+  // Check if we're on the VNC viewer page
+  const isVncViewer = window.location.pathname === "/vnc-viewer" || window.location.pathname.endsWith("/vnc-viewer");
+  
+  if (isVncViewer) {
+    return <VncViewerPage />;
+  }
+
   const [tab, setTab] = useState<Tab>("system");
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const content = useMemo(() => tabConfig[tab].component, [tab]);
+  const { toasts, showToast: showToastInternal, dismissToast } = useToast();
+
+  useEffect(() => {
+    globalToast = showToastInternal;
+    return () => {
+      globalToast = null;
+    };
+  }, [showToastInternal]);
 
   const { data: systemStatus, error: systemError } = useSWR<SystemStatus>(
     authenticated ? "/api/system/status" : null,
@@ -61,6 +87,12 @@ export default function App() {
         console.error("Failed to fetch system status:", error);
       }
     }
+  );
+
+  const { data: versionInfo } = useSWR<{ version: string; buildDate?: string }>(
+    authenticated ? "/api/system/version" : null,
+    () => getSystemVersion(),
+    { revalidateOnFocus: false }
   );
 
   useEffect(() => {
@@ -123,7 +155,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell space-y-6">
+    <div className="app-shell space-y-4">
       <header className="flex items-center justify-between gap-6">
         <div className="flex items-center gap-4">
           <img
@@ -145,6 +177,11 @@ export default function App() {
                 "Connecting..."
               )}
             </p>
+            {versionInfo && (
+              <p className="text-xs text-slate-500 mt-0.5">
+                v{versionInfo.version}
+              </p>
+            )}
           </div>
         </div>
       </header>
@@ -162,10 +199,11 @@ export default function App() {
         ))}
       </nav>
 
-      <main className="space-y-4">
+      <main className="space-y-3">
         {content}
         {tab === "system" && <PowerControls />}
       </main>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

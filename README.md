@@ -6,18 +6,23 @@
 
 Weasel is a Windows-based remote system administration tool that runs as a system tray application. It provides a modern web-based console for managing files, processes, services, system information, and more on Windows machines.
 
+**Version**: 1.0.0-alpha
+
 ## Features
 
 - **System Tray Application**: Runs unobtrusively in the background.
 - **Web-Based Console**: React + TypeScript frontend for a responsive user experience.
-- **File Management**: Browse, upload, download, and manage files.
+- **File Management**: Browse, upload, download, and manage files with a modern two-panel interface.
 - **Process Management**: View and terminate running processes.
 - **Service Management**: Control Windows services.
 - **System Information**: View real-time system metrics and hardware details.
 - **Power Control**: Shutdown, restart, or lock the machine remotely.
-- **Package Management**: Install and uninstall applications via `winget`.
-- **Disk Monitoring**: Automated monitoring and alerting for disk space usage.
-- **Remote Desktop (VNC)**: Built-in VNC server for remote desktop access.
+- **Package Management**: Install, uninstall, and update applications via `winget` with real-time log tailing.
+- **Storage Monitor**: Automated monitoring and alerting for disk space and folder usage.
+- **Application Monitor**: Monitor and automatically restart applications with detailed logging.
+- **Remote Desktop (VNC)**: Built-in VNC server for remote desktop access with auto-start capability.
+- **Screenshot Capture**: Manual and timed screenshot capture with configurable intervals.
+- **Structured Logging**: Component-specific log files with archive support and granular control.
 
 ## Architecture
 
@@ -90,7 +95,8 @@ Key settings include:
 - **Remote Access**: Set `WeaselHost:WebServer:AllowRemote` to `true` to allow external connections.
 - **Security**: Set `WeaselHost:Security:RequireAuthentication` to `true` to require an `X-Weasel-Token` header.
 - **HTTPS**: Configure `CertificatePath` and `CertificatePassword` to enable HTTPS.
-- **VNC Server**: Enable and configure the built-in VNC server for remote desktop access in Settings → Remote Desktop or Tools → Remote Desktop.
+- **VNC Server**: Enable and configure the built-in VNC server for remote desktop access in Settings → VNC. The server can be started/stopped from Tools → VNC.
+- **Logging**: Configure component-specific logging in Settings → Logging. Logs are stored in `%APPDATA%\Weasel\Logs\` with component-specific subfolders.
 
 See the following guides for more detailed information:
 

@@ -24,10 +24,37 @@ internal sealed class FileLoggerProvider : ILoggerProvider
     internal void Write(LogLevel level, string category, string message, Exception? exception)
     {
         var options = _optionsMonitor.CurrentValue.Logging;
-        var folder = EnsureFolder(options.Folder);
+        
+        // Map category to component name
+        var componentName = GetSubfolderForCategory(category);
+        
+        // Check if logging is enabled for this component
+        // If the component is not in the dictionary, default to enabled (backward compatibility)
+        if (options.ComponentEnabled.TryGetValue(componentName, out var isEnabled) && !isEnabled)
+        {
+            // Logging is disabled for this component, skip writing
+            return;
+        }
+        
+        var baseFolder = EnsureFolder(options.Folder);
         var datePrefix = DateTime.UtcNow.ToString("yyyyMMdd");
-        var baseFileName = $"weasel-{datePrefix}.log";
-        var path = Path.Combine(folder, baseFileName);
+        string path;
+        string folder;
+        
+        // Determine log file path based on component
+        if (componentName == "General")
+        {
+            // General logs go to root: Logs/weasel-{yyyymmdd}.log
+            folder = baseFolder;
+            path = Path.Combine(folder, $"weasel-{datePrefix}.log");
+        }
+        else
+        {
+            // Component logs go to: Logs/{Component}/{Component}-{yyyymmdd}.log
+            folder = Path.Combine(baseFolder, componentName);
+            Directory.CreateDirectory(folder);
+            path = Path.Combine(folder, $"{componentName}-{datePrefix}.log");
+        }
 
         var builder = new StringBuilder()
             .Append(DateTime.UtcNow.ToString("O"))
@@ -48,34 +75,113 @@ internal sealed class FileLoggerProvider : ILoggerProvider
 
         lock (_lock)
         {
+            // Check if we need to archive old files (new day started)
+            ArchiveOldFiles(folder, componentName, datePrefix, baseFolder);
+            
             // Check if we need to rotate based on file size
             if (options.EnableSizeRotation && options.MaxFileSizeBytes > 0 && File.Exists(path))
             {
                 var fileInfo = new FileInfo(path);
                 if (fileInfo.Length + logEntry.Length > options.MaxFileSizeBytes)
                 {
-                    RotateFile(path, datePrefix, folder, options.MaxFilesPerDay);
+                    RotateFile(path, datePrefix, folder, componentName, options.MaxFilesPerDay);
                 }
             }
 
             File.AppendAllText(path, logEntry);
         }
 
-        PruneOldFiles(folder, options.RetentionDays);
+        PruneOldFiles(baseFolder, options.RetentionDays);
     }
 
-    private static void RotateFile(string currentPath, string datePrefix, string folder, int maxFilesPerDay)
+    private static void ArchiveOldFiles(string folder, string componentName, string currentDatePrefix, string baseFolder)
     {
         try
         {
+            // Get all log files in the folder (excluding Archive subfolder)
+            var logFiles = Directory.GetFiles(folder, "*.log", SearchOption.TopDirectoryOnly)
+                .Where(f => !Path.GetDirectoryName(f)!.EndsWith("Archive", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var file in logFiles)
+            {
+                var fileName = Path.GetFileName(file);
+                string? fileDatePrefix = null;
+                
+                // Extract date prefix from filename
+                if (componentName == "General")
+                {
+                    // Format: weasel-{yyyymmdd}.log or weasel-{yyyymmdd}.{rotation}.log
+                    if (fileName.StartsWith("weasel-", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var parts = fileName.Replace("weasel-", "").Split('.');
+                        if (parts.Length > 0 && parts[0].Length == 8)
+                        {
+                            fileDatePrefix = parts[0];
+                        }
+                    }
+                }
+                else
+                {
+                    // Format: {Component}-{yyyymmdd}.log or {Component}-{yyyymmdd}.{rotation}.log
+                    var prefix = $"{componentName}-";
+                    if (fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var parts = fileName.Substring(prefix.Length).Split('.');
+                        if (parts.Length > 0 && parts[0].Length == 8)
+                        {
+                            fileDatePrefix = parts[0];
+                        }
+                    }
+                }
+                
+                // If file date is different from current date, move to Archive
+                if (fileDatePrefix != null && fileDatePrefix != currentDatePrefix)
+                {
+                    var archiveFolder = componentName == "General" 
+                        ? Path.Combine(baseFolder, "Archive")
+                        : Path.Combine(folder, "Archive");
+                    Directory.CreateDirectory(archiveFolder);
+                    
+                    var archivePath = Path.Combine(archiveFolder, fileName);
+                    try
+                    {
+                        if (File.Exists(archivePath))
+                        {
+                            File.Delete(archivePath);
+                        }
+                        File.Move(file, archivePath);
+                    }
+                    catch
+                    {
+                        // Ignore move errors
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore archive errors
+        }
+    }
+
+    private static void RotateFile(string currentPath, string datePrefix, string folder, string componentName, int maxFilesPerDay)
+    {
+        try
+        {
+            // Determine filename pattern based on component
+            string basePattern = componentName == "General" 
+                ? $"weasel-{datePrefix}"
+                : $"{componentName}-{datePrefix}";
+            
             // Find the highest rotation number for today's files
-            var pattern = $"weasel-{datePrefix}.*.log";
+            var pattern = $"{basePattern}.*.log";
             var existingRotated = Directory.GetFiles(folder, pattern)
                 .Select(f => Path.GetFileName(f))
-                .Where(f => f.StartsWith($"weasel-{datePrefix}.", StringComparison.OrdinalIgnoreCase))
+                .Where(f => f.StartsWith($"{basePattern}.", StringComparison.OrdinalIgnoreCase))
                 .Select(f =>
                 {
-                    // Extract number from filename like "weasel-20250101.3.log"
+                    // Extract number from filename like "Component-20250101.3.log"
                     var parts = f.Split('.');
                     if (parts.Length >= 3 && int.TryParse(parts[1], out var num))
                     {
@@ -94,7 +200,7 @@ internal sealed class FileLoggerProvider : ILoggerProvider
             if (maxFilesPerDay > 0 && nextRotation > maxFilesPerDay)
             {
                 // Delete the oldest rotated file (rotation number 1)
-                var oldestRotated = Path.Combine(folder, $"weasel-{datePrefix}.1.log");
+                var oldestRotated = Path.Combine(folder, $"{basePattern}.1.log");
                 if (File.Exists(oldestRotated))
                 {
                     try
@@ -110,8 +216,8 @@ internal sealed class FileLoggerProvider : ILoggerProvider
                 // Shift all existing rotated files down by 1
                 for (int i = 2; i <= existingRotated; i++)
                 {
-                    var oldFile = Path.Combine(folder, $"weasel-{datePrefix}.{i}.log");
-                    var newFile = Path.Combine(folder, $"weasel-{datePrefix}.{i - 1}.log");
+                    var oldFile = Path.Combine(folder, $"{basePattern}.{i}.log");
+                    var newFile = Path.Combine(folder, $"{basePattern}.{i - 1}.log");
                     if (File.Exists(oldFile))
                     {
                         try
@@ -130,7 +236,7 @@ internal sealed class FileLoggerProvider : ILoggerProvider
             }
 
             // Rotate the current file
-            var rotatedPath = Path.Combine(folder, $"weasel-{datePrefix}.{nextRotation}.log");
+            var rotatedPath = Path.Combine(folder, $"{basePattern}.{nextRotation}.log");
             if (File.Exists(currentPath))
             {
                 File.Move(currentPath, rotatedPath, overwrite: true);
@@ -164,7 +270,39 @@ internal sealed class FileLoggerProvider : ILoggerProvider
         return folder;
     }
 
-    private static void PruneOldFiles(string folder, int retentionDays)
+    private static string GetSubfolderForCategory(string category)
+    {
+        // Map logger categories to subfolders
+        if (category.Contains("VncService", StringComparison.OrdinalIgnoreCase) || 
+            category.Contains("Vnc", StringComparison.OrdinalIgnoreCase))
+        {
+            return "VNC";
+        }
+        
+        if (category.Contains("DiskMonitorService", StringComparison.OrdinalIgnoreCase) || 
+            category.Contains("DiskMonitor", StringComparison.OrdinalIgnoreCase))
+        {
+            return "DiskMonitor";
+        }
+        
+        if (category.Contains("ApplicationMonitorService", StringComparison.OrdinalIgnoreCase) || 
+            category.Contains("ApplicationMonitor", StringComparison.OrdinalIgnoreCase))
+        {
+            return "ApplicationMonitor";
+        }
+        
+        if (category.Contains("ScreenshotService", StringComparison.OrdinalIgnoreCase) || 
+            category.Contains("IntervalScreenshotService", StringComparison.OrdinalIgnoreCase) ||
+            category.Contains("Screenshot", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Screenshots";
+        }
+        
+        // Default to General for other categories
+        return "General";
+    }
+
+    private static void PruneOldFiles(string baseFolder, int retentionDays)
     {
         if (retentionDays <= 0)
         {
@@ -172,7 +310,47 @@ internal sealed class FileLoggerProvider : ILoggerProvider
         }
 
         var threshold = DateTime.UtcNow.AddDays(-retentionDays);
-        foreach (var file in Directory.EnumerateFiles(folder, "weasel-*.log"))
+        
+        // Prune files in root folder (general logs)
+        PruneFilesInFolder(baseFolder, threshold, "weasel-*.log");
+        
+        // Prune files in Archive folder (general archive)
+        var archiveFolder = Path.Combine(baseFolder, "Archive");
+        if (Directory.Exists(archiveFolder))
+        {
+            PruneFilesInFolder(archiveFolder, threshold, "weasel-*.log");
+        }
+        
+        // Prune files in component folders and their Archive subfolders
+        foreach (var componentFolder in Directory.GetDirectories(baseFolder))
+        {
+            var folderName = Path.GetFileName(componentFolder);
+            if (folderName.Equals("Archive", StringComparison.OrdinalIgnoreCase))
+            {
+                continue; // Skip root Archive folder, already handled
+            }
+            
+            // Prune component logs
+            var componentPattern = $"{folderName}-*.log";
+            PruneFilesInFolder(componentFolder, threshold, componentPattern);
+            
+            // Prune component archive logs
+            var componentArchiveFolder = Path.Combine(componentFolder, "Archive");
+            if (Directory.Exists(componentArchiveFolder))
+            {
+                PruneFilesInFolder(componentArchiveFolder, threshold, componentPattern);
+            }
+        }
+    }
+    
+    private static void PruneFilesInFolder(string folder, DateTime threshold, string pattern)
+    {
+        if (!Directory.Exists(folder))
+        {
+            return;
+        }
+        
+        foreach (var file in Directory.EnumerateFiles(folder, pattern))
         {
             try
             {

@@ -30,7 +30,15 @@ export default defineConfig({
   },
   build: {
     outDir: path.resolve(__dirname, "../WeaselHost.Web/wwwroot"),
-    emptyOutDir: true
+    emptyOutDir: true,
+    target: "esnext",
+    commonjsOptions: {
+      include: [/node_modules/],
+      transformMixedEsModules: true
+    }
+  },
+  optimizeDeps: {
+    include: ["@novnc/novnc", "novnc"]
   }
 });
 

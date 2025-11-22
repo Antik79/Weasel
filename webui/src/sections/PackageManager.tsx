@@ -2,20 +2,26 @@ import { useMemo, useState, useCallback } from "react";
 import useSWR from "swr";
 import { Package, RefreshCcw, Search as SearchIcon, Plus, Trash2, Download, Upload, Archive } from "lucide-react";
 import { api } from "../api/client";
-import { InstalledApplication, PackageOperationResult, PackageSearchResult, PackageBundle, BundlePackage } from "../types";
+import { InstalledApplication, PackageOperationResult, PackageSearchResult, PackageBundle, BundlePackage, LogsResponse } from "../types";
 import Table, { TableColumn } from "../components/Table";
+import SubmenuNav, { SubmenuItem } from "../components/SubmenuNav";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { showToast } from "../App";
 
 const fetcher = (url: string) => api<InstalledApplication[]>(url);
 const bundlesFetcher = () => api<PackageBundle[]>("/api/packages/bundles");
 
+type PackageTab = "installed" | "install" | "saved" | "bundles";
+
 export default function PackageManager() {
-  const [activeTab, setActiveTab] = useState<"installed" | "search" | "bundles">("installed");
+  const [activeTab, setActiveTab] = useState<PackageTab>("installed");
   const [search, setSearch] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<PackageSearchResult[]>([]);
   const [identifier, setIdentifier] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const [installingPackageId, setInstallingPackageId] = useState<string | null>(null);
   
   // Bundle state
   const [selectedBundle, setSelectedBundle] = useState<string | null>(null);
@@ -26,26 +32,83 @@ export default function PackageManager() {
   
   // Search results selection
   const [selectedPackages, setSelectedPackages] = useState<Set<string>>(new Set());
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant?: "danger" | "warning" | "info";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    variant: "info"
+  });
 
-  const { data, mutate, isLoading, error } = useSWR("/api/packages", fetcher, {
+  const { data: installedPackages, mutate, isLoading, error } = useSWR("/api/packages", fetcher, {
     revalidateOnFocus: false
   });
+
+  // Check if a package is installed and get its version
+  const getInstalledPackage = useCallback((packageId: string): InstalledApplication | undefined => {
+    if (!installedPackages || !Array.isArray(installedPackages)) return undefined;
+    return installedPackages.find(pkg => pkg.identifier.toLowerCase() === packageId.toLowerCase());
+  }, [installedPackages]);
+
+  // Check if a newer version is available
+  const isUpdateAvailable = useCallback((searchResult: PackageSearchResult): boolean => {
+    const installed = getInstalledPackage(searchResult.id);
+    if (!installed || !searchResult.version) return false;
+    // Simple version comparison - could be improved
+    return searchResult.version !== installed.version;
+  }, [getInstalledPackage]);
 
   const { data: bundles, mutate: mutateBundles } = useSWR("bundles", bundlesFetcher, {
     revalidateOnFocus: false
   });
 
+  // Log fetching for installation tailing
+  const logsFetcher = () => {
+    const url = new URL("/api/logs", window.location.origin);
+    return api<LogsResponse>(url.toString());
+  };
+
+  const { data: logsResponse } = useSWR(
+    installingPackageId ? ["logs-general", installingPackageId] : null,
+    logsFetcher,
+    { refreshInterval: 1000 }
+  );
+
+  const logFiles = logsResponse?.files ?? [];
+  // Get the latest log file (sorted by name, which includes date)
+  const latestLogFile = logFiles.length > 0 
+    ? [...logFiles].sort((a, b) => b.name.localeCompare(a.name))[0]
+    : null;
+
+  const { data: logContent, isLoading: logLoading } = useSWR(
+    installingPackageId && latestLogFile ? ["log-content", latestLogFile.name] : null,
+    ([, fileName]: [string, string]) => {
+      const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
+      return api<string>(url.toString());
+    },
+    {
+      revalidateOnFocus: true,
+      refreshInterval: 1000 // Auto-refresh every second for tailing
+    }
+  );
+
   const filtered = useMemo(() => {
-    if (!data || !Array.isArray(data)) return [];
-    if (!search) return data;
+    if (!installedPackages || !Array.isArray(installedPackages)) return [];
+    if (!search) return installedPackages;
     const query = search.toLowerCase();
-    return data.filter((pkg) =>
+    return installedPackages.filter((pkg) =>
       pkg.displayName.toLowerCase().includes(query) ||
       pkg.identifier.toLowerCase().includes(query) ||
       pkg.publisher.toLowerCase().includes(query) ||
       pkg.version.toLowerCase().includes(query)
     );
-  }, [data, search]);
+  }, [installedPackages, search]);
 
   const currentBundle = useMemo(() => {
     if (!selectedBundle || !bundles) return null;
@@ -65,7 +128,7 @@ export default function PackageManager() {
       setSelectedPackages(new Set()); // Clear selection on new search
     } catch (err) {
       console.error("Search failed:", err);
-      alert(`Search failed: ${err instanceof Error ? err.message : String(err)}`);
+      showToast(`Search failed: ${err instanceof Error ? err.message : String(err)}`, "error");
       setSearchResults([]);
       setSelectedPackages(new Set());
     } finally {
@@ -96,37 +159,51 @@ export default function PackageManager() {
   const installSelectedPackages = async () => {
     if (selectedPackages.size === 0) return;
     
-    if (!window.confirm(`Install ${selectedPackages.size} package(s)? This may take a while.`)) return;
-    
-    setIsBusy(true);
-    try {
-      const results: PackageOperationResult[] = [];
-      for (const packageId of selectedPackages) {
+    setConfirmDialog({
+      isOpen: true,
+      title: "Install Packages",
+      message: `Install ${selectedPackages.size} package(s)? This may take a while.`,
+      onConfirm: async () => {
+        setIsBusy(true);
+        setInstallingPackageId("batch-install");
         try {
-          const result = await api<PackageOperationResult>(`/api/packages/install`, {
-            method: "POST",
-            body: JSON.stringify({ identifier: packageId })
-          });
-          results.push(result);
+          const results: PackageOperationResult[] = [];
+          for (const packageId of selectedPackages) {
+            try {
+              const result = await api<PackageOperationResult>(`/api/packages/install`, {
+                method: "POST",
+                body: JSON.stringify({ identifier: packageId })
+              });
+              results.push(result);
+            } catch (err) {
+              results.push({
+                succeeded: false,
+                exitCode: -1,
+                message: err instanceof Error ? err.message : String(err)
+              });
+            }
+          }
+          
+          const succeeded = results.filter(r => r.succeeded).length;
+          const failed = results.filter(r => !r.succeeded).length;
+          if (failed === 0) {
+            showToast(`Installation complete: ${succeeded} package(s) installed successfully`, "success");
+          } else {
+            showToast(`Installation complete: ${succeeded} succeeded, ${failed} failed`, "warning");
+          }
+          setSelectedPackages(new Set());
+          await mutate();
+          setInstallingPackageId(null);
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
         } catch (err) {
-          results.push({
-            succeeded: false,
-            exitCode: -1,
-            message: err instanceof Error ? err.message : String(err)
-          });
+          showToast(`Failed to install packages: ${err instanceof Error ? err.message : String(err)}`, "error");
+          setInstallingPackageId(null);
+        } finally {
+          setIsBusy(false);
         }
-      }
-      
-      const succeeded = results.filter(r => r.succeeded).length;
-      const failed = results.filter(r => !r.succeeded).length;
-      alert(`Installation complete: ${succeeded} succeeded, ${failed} failed`);
-      setSelectedPackages(new Set());
-      await mutate();
-    } catch (err) {
-      alert(`Failed to install packages: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsBusy(false);
-    }
+      },
+      variant: "info"
+    });
   };
 
   const addSelectedToBundle = async (bundleId: string) => {
@@ -152,9 +229,9 @@ export default function PackageManager() {
       
       await mutateBundles();
       setSelectedPackages(new Set());
-      alert(`Added ${packagesToAdd.length} package(s) to bundle "${bundle.name}"`);
+      showToast(`Added ${packagesToAdd.length} package(s) to bundle "${bundle.name}"`, "success");
     } catch (err) {
-      alert(`Failed to add packages to bundle: ${err instanceof Error ? err.message : String(err)}`);
+      showToast(`Failed to add packages to bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
     }
   };
 
@@ -162,16 +239,28 @@ export default function PackageManager() {
     const id = targetIdentifier ?? identifier;
     if (!id) return;
     setIsBusy(true);
+    if (endpoint === "/install") {
+      setInstallingPackageId(id);
+    }
     try {
       const result = await api<PackageOperationResult>(`/api/packages${endpoint}`, {
         method: "POST",
         body: JSON.stringify({ identifier: id })
       });
-      const summaryMessage = result.succeeded
-        ? `${id} ${endpoint === "/install" ? "installed" : "uninstalled"} successfully.`
-        : `Failed to ${endpoint === "/install" ? "install" : "uninstall"} ${id}. Error: ${result.message.split('\n')[0]}`;
-      alert(summaryMessage);
+      if (result.succeeded) {
+        showToast(`${id} ${endpoint === "/install" ? "installed" : "uninstalled"} successfully.`, "success");
+      } else {
+        showToast(`Failed to ${endpoint === "/install" ? "install" : "uninstall"} ${id}. Error: ${result.message.split('\n')[0]}`, "error");
+      }
       await mutate();
+      if (endpoint === "/install") {
+        setInstallingPackageId(null);
+      }
+    } catch (err) {
+      showToast(`Failed to ${endpoint === "/install" ? "install" : "uninstall"} ${id}: ${err instanceof Error ? err.message : String(err)}`, "error");
+      if (endpoint === "/install") {
+        setInstallingPackageId(null);
+      }
     } finally {
       setIsBusy(false);
     }
@@ -180,7 +269,7 @@ export default function PackageManager() {
 
   const createBundle = async () => {
     if (!newBundleName.trim()) {
-      alert("Please enter a bundle name");
+      showToast("Please enter a bundle name", "warning");
       return;
     }
     setIsCreatingBundle(true);
@@ -194,8 +283,9 @@ export default function PackageManager() {
       setNewBundleDescription("");
       await mutateBundles();
       setActiveTab("bundles");
+      showToast("Bundle created successfully", "success");
     } catch (err) {
-      alert(`Failed to create bundle: ${err instanceof Error ? err.message : String(err)}`);
+      showToast(`Failed to create bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setIsCreatingBundle(false);
     }
@@ -219,9 +309,9 @@ export default function PackageManager() {
         })
       });
       await mutateBundles();
-      alert(`Added ${pkg.name} to bundle`);
+      showToast(`Added ${pkg.name} to bundle`, "success");
     } catch (err) {
-      alert(`Failed to add package to bundle: ${err instanceof Error ? err.message : String(err)}`);
+      showToast(`Failed to add package to bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
     }
   };
 
@@ -236,43 +326,73 @@ export default function PackageManager() {
         })
       });
       await mutateBundles();
+      showToast("Package removed from bundle", "success");
     } catch (err) {
-      alert(`Failed to remove package from bundle: ${err instanceof Error ? err.message : String(err)}`);
+      showToast(`Failed to remove package from bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
     }
   };
+
+  const [bundleToInstall, setBundleToInstall] = useState<string | null>(null);
 
   const installBundle = async (bundleId: string) => {
-    if (!window.confirm("Install all packages in this bundle? This may take a while.")) return;
-    
-    setIsInstallingBundle(true);
-    try {
-      const results = await api<PackageOperationResult[]>(`/api/packages/bundles/${bundleId}/install`, {
-        method: "POST"
-      });
-      
-      const succeeded = results.filter(r => r.succeeded).length;
-      const failed = results.filter(r => !r.succeeded).length;
-      alert(`Bundle installation complete: ${succeeded} succeeded, ${failed} failed`);
-      await mutate();
-    } catch (err) {
-      alert(`Failed to install bundle: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setIsInstallingBundle(false);
-    }
+    setBundleToInstall(bundleId);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Install Bundle",
+      message: "Install all packages in this bundle? This may take a while.",
+      onConfirm: async () => {
+        if (!bundleToInstall) return;
+        setIsInstallingBundle(true);
+        try {
+          const results = await api<PackageOperationResult[]>(`/api/packages/bundles/${bundleToInstall}/install`, {
+            method: "POST"
+          });
+          
+          const succeeded = results.filter(r => r.succeeded).length;
+          const failed = results.filter(r => !r.succeeded).length;
+          if (failed === 0) {
+            showToast(`Bundle installation complete: ${succeeded} package(s) installed successfully`, "success");
+          } else {
+            showToast(`Bundle installation complete: ${succeeded} succeeded, ${failed} failed`, "warning");
+          }
+          await mutate();
+          setBundleToInstall(null);
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        } catch (err) {
+          showToast(`Failed to install bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
+        } finally {
+          setIsInstallingBundle(false);
+        }
+      },
+      variant: "info"
+    });
   };
 
+  const [bundleToDelete, setBundleToDelete] = useState<string | null>(null);
+
   const deleteBundle = async (bundleId: string) => {
-    if (!window.confirm("Delete this bundle?")) return;
-    
-    try {
-      await api(`/api/packages/bundles/${bundleId}`, { method: "DELETE" });
-      if (selectedBundle === bundleId) {
-        setSelectedBundle(null);
-      }
-      await mutateBundles();
-    } catch (err) {
-      alert(`Failed to delete bundle: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    setBundleToDelete(bundleId);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete Bundle",
+      message: "Are you sure you want to delete this bundle?",
+      onConfirm: async () => {
+        if (!bundleToDelete) return;
+        try {
+          await api(`/api/packages/bundles/${bundleToDelete}`, { method: "DELETE" });
+          await mutateBundles();
+          if (selectedBundle === bundleToDelete) {
+            setSelectedBundle(null);
+          }
+          showToast("Bundle deleted successfully", "success");
+          setBundleToDelete(null);
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        } catch (err) {
+          showToast(`Failed to delete bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
+        }
+      },
+      variant: "danger"
+    });
   };
 
   const exportBundle = (bundle: PackageBundle) => {
@@ -314,69 +434,41 @@ export default function PackageManager() {
         await mutateBundles();
         setSelectedBundle(newBundle.id);
         setActiveTab("bundles");
-        alert("Bundle imported successfully");
+        showToast("Bundle imported successfully", "success");
       } catch (err) {
-        alert(`Failed to import bundle: ${err instanceof Error ? err.message : String(err)}`);
+        showToast(`Failed to import bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
       }
     };
     input.click();
   };
 
+  const packageTabs: SubmenuItem[] = [
+    { id: "installed", label: "Installed Packages", icon: <Package size={16} /> },
+    { id: "install", label: "Install Packages", icon: <SearchIcon size={16} /> },
+    { id: "saved", label: "Saved Packages", icon: <Archive size={16} /> },
+    { id: "bundles", label: "Bundles", icon: <Archive size={16} /> }
+  ];
+
   return (
     <section className="space-y-4">
-      <header className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-sm text-slate-400">Applications</p>
-          <h2 className="text-lg font-semibold text-white">
-            Managed via winget
-          </h2>
-        </div>
-        <div className="flex gap-2">
-          <button className="btn-outline" onClick={() => mutate()}>
-            <RefreshCcw size={16} /> Refresh
-          </button>
-        </div>
-      </header>
-
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-800">
-        <button
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === "installed"
-              ? "text-sky-400 border-b-2 border-sky-400"
-              : "text-slate-400 hover:text-white"
-          }`}
-          onClick={() => setActiveTab("installed")}
-        >
-          Installed Packages
-        </button>
-        <button
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === "search"
-              ? "text-sky-400 border-b-2 border-sky-400"
-              : "text-slate-400 hover:text-white"
-          }`}
-          onClick={() => setActiveTab("search")}
-        >
-          Search Packages
-        </button>
-        <button
-          className={`px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === "bundles"
-              ? "text-sky-400 border-b-2 border-sky-400"
-              : "text-slate-400 hover:text-white"
-          }`}
-          onClick={() => setActiveTab("bundles")}
-        >
-          Bundles
-        </button>
-      </div>
+      <SubmenuNav 
+        items={packageTabs} 
+        activeId={activeTab} 
+        onSelect={(id) => setActiveTab(id as PackageTab)} 
+      />
 
       {error && (
         <p className="text-sm text-red-400">Failed to load packages: {String(error)}</p>
       )}
 
       {/* Installed Packages Tab */}
+      {activeTab === "installed" && (
+        <div className="flex items-center justify-end gap-2 mb-2">
+          <button className="btn-outline" onClick={() => mutate()}>
+            <RefreshCcw size={16} /> Refresh
+          </button>
+        </div>
+      )}
       {activeTab === "installed" && (
         <div className="panel">
             <h3 className="panel-title mb-3">Installed Packages</h3>
@@ -442,8 +534,8 @@ export default function PackageManager() {
         </div>
       )}
 
-      {/* Search Packages Tab */}
-      {activeTab === "search" && (
+      {/* Install Packages Tab */}
+      {activeTab === "install" && (
         <div className="space-y-4">
           <div className="panel space-y-4">
             <div className="flex items-center justify-between">
@@ -581,35 +673,72 @@ export default function PackageManager() {
                       key: "actions",
                       label: "Actions",
                       sortable: false,
-                      render: (pkg) => (
-                        <div className="flex gap-2">
-                          <button
-                            className="btn-primary text-xs"
-                            onClick={() => execute("/install", pkg.id)}
-                            disabled={isBusy}
-                          >
-                            Install
-                          </button>
-                          {bundles && bundles.length > 0 && (
-                            <select
-                              className="btn-outline text-xs"
-                              value=""
-                              onChange={(e) => {
-                                const bundleId = e.target.value;
-                                if (bundleId) {
-                                  addPackageToBundle(pkg);
-                                }
-                                e.target.value = "";
-                              }}
-                            >
-                              <option value="">Add to bundle...</option>
-                              {bundles.map(b => (
-                                <option key={b.id} value={b.id}>{b.name}</option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
-                      )
+                      render: (pkg) => {
+                        const installed = getInstalledPackage(pkg.id);
+                        const hasUpdate = isUpdateAvailable(pkg);
+                        return (
+                          <div className="flex gap-2">
+                            {installed ? (
+                              <>
+                                {hasUpdate && (
+                                  <button
+                                    className="btn-primary text-xs"
+                                    onClick={() => execute("/install", pkg.id)}
+                                    disabled={isBusy}
+                                    title={`Update from ${installed.version} to ${pkg.version}`}
+                                  >
+                                    Update
+                                  </button>
+                                )}
+                                <button
+                                  className="btn-outline text-xs text-red-400 hover:text-red-300"
+                                  onClick={() => {
+                                    setConfirmDialog({
+                                      isOpen: true,
+                                      title: "Uninstall Package",
+                                      message: `Uninstall ${pkg.name}?`,
+                                      onConfirm: async () => {
+                                        await execute("/uninstall", pkg.id);
+                                        setConfirmDialog({ ...confirmDialog, isOpen: false });
+                                      },
+                                      variant: "danger"
+                                    });
+                                  }}
+                                  disabled={isBusy}
+                                >
+                                  Uninstall
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                className="btn-primary text-xs"
+                                onClick={() => execute("/install", pkg.id)}
+                                disabled={isBusy}
+                              >
+                                Install
+                              </button>
+                            )}
+                            {bundles && bundles.length > 0 && (
+                              <select
+                                className="btn-outline text-xs"
+                                value=""
+                                onChange={(e) => {
+                                  const bundleId = e.target.value;
+                                  if (bundleId) {
+                                    addPackageToBundle(pkg);
+                                  }
+                                  e.target.value = "";
+                                }}
+                              >
+                                <option value="">Add to bundle...</option>
+                                {bundles.map(b => (
+                                  <option key={b.id} value={b.id}>{b.name}</option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                        );
+                      }
                     }
                   ]}
                   keyExtractor={(pkg) => pkg.id}
@@ -618,8 +747,38 @@ export default function PackageManager() {
                   maxHeight="max-h-96"
                 />
               </div>
+
+              {/* Installation Log Tailing */}
+              {installingPackageId && (
+                <div className="panel space-y-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="panel-title mb-0">Installation Log</h3>
+                    <div className="text-xs text-slate-400">
+                      {logLoading ? "Loading..." : "Tailing log (auto-refreshing every second)"}
+                    </div>
+                  </div>
+                  <div className="bg-slate-950 rounded border border-slate-800 p-3 max-h-64 overflow-y-auto">
+                    {logLoading && <p className="text-sm text-slate-400">Loading log...</p>}
+                    {!logLoading && !logContent && <p className="text-sm text-slate-400">No log content available</p>}
+                    {!logLoading && logContent && (
+                      <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono">
+                        {logContent}
+                      </pre>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
+        </div>
+      )}
+
+      {/* Bundles Tab */}
+      {/* Saved Packages Tab */}
+      {activeTab === "saved" && (
+        <div className="panel">
+          <h3 className="panel-title mb-3">Saved Packages</h3>
+          <p className="text-sm text-slate-400">Saved packages functionality coming soon.</p>
         </div>
       )}
 
@@ -772,6 +931,15 @@ export default function PackageManager() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        variant={confirmDialog.variant}
+      />
     </section>
   );
 }

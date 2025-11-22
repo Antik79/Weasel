@@ -13,7 +13,7 @@ const smtpFetcher = () => api<SmtpConfig>("/api/settings/mail");
 const startupFetcher = () => api<{ enabled: boolean }>("/api/system/startup");
 const adminStatusFetcher = () => api<{ isAdministrator: boolean }>("/api/system/admin/status");
 
-type SettingsTab = "general" | "security" | "mail" | "logging" | "remote-desktop";
+type SettingsTab = "general" | "security" | "mail" | "logging" | "screenshots" | "vnc";
 
 export default function Settings() {
   const { t, language, setLanguage } = useTranslation();
@@ -101,9 +101,9 @@ export default function Settings() {
         })
       });
       await mutateCapture();
-      alert(t("common.success"));
+      showToast(t("common.success"), "success");
     } catch (error) {
-      alert(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`);
+      showToast(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`, "error");
     } finally {
       setIsSavingGeneral(false);
     }
@@ -117,23 +117,34 @@ export default function Settings() {
         body: JSON.stringify({ enabled })
       });
       await mutateStartup();
+      showToast(t("common.success"), "success");
     } catch (error) {
-      alert(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`);
+      showToast(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`, "error");
     }
   };
 
   const restartAsAdmin = async () => {
-    if (!window.confirm(t("system.restartAdmin") + "?")) return;
-    try {
-      await api("/api/system/admin/restart", { method: "POST" });
-    } catch (error) {
-      alert(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: "Restart as Administrator",
+      message: t("system.restartAdmin") + "?",
+      onConfirm: async () => {
+        try {
+          await api("/api/system/admin/restart", { method: "POST" });
+          showToast("Restarting as administrator...", "success");
+        } catch (error) {
+          showToast(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`, "error");
+        } finally {
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        }
+      },
+      variant: "warning"
+    });
   };
 
   const saveSecuritySettings = async () => {
     if (securityForm.password !== securityForm.confirmPassword) {
-      alert("Passwords do not match");
+      showToast("Passwords do not match", "error");
       return;
     }
     setIsSavingSecurity(true);
@@ -147,9 +158,9 @@ export default function Settings() {
       });
       setSecurityForm(prev => ({ ...prev, password: "", confirmPassword: "" }));
       await mutateSecurity();
-      alert(t("common.success"));
+      showToast(t("common.success"), "success");
     } catch (error) {
-      alert(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`);
+      showToast(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`, "error");
     } finally {
       setIsSavingSecurity(false);
     }
@@ -163,9 +174,9 @@ export default function Settings() {
         body: JSON.stringify({ ...smtpForm, testRecipient })
       });
       await mutateSmtp();
-      alert(t("common.success"));
+      showToast(t("common.success"), "success");
     } catch (error) {
-      alert(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`);
+      showToast(`${t("common.error")}: ${error instanceof Error ? error.message : String(error)}`, "error");
     } finally {
       setIsSavingSmtp(false);
     }
@@ -173,7 +184,7 @@ export default function Settings() {
 
   const sendTestEmail = async () => {
     if (!testRecipient) {
-      alert("Please enter a recipient email address");
+      showToast("Please enter a recipient email address", "error");
       return;
     }
     setSendingTest(true);
@@ -182,10 +193,10 @@ export default function Settings() {
         method: "POST",
         body: JSON.stringify({ recipient: testRecipient })
       });
-      alert("Test email sent successfully");
+      showToast("Test email sent successfully", "success");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      alert(`Failed to send test email: ${errorMessage}`);
+      showToast(`Failed to send test email: ${errorMessage}`, "error");
     } finally {
       setSendingTest(false);
     }
@@ -224,11 +235,18 @@ export default function Settings() {
           Logging
         </button>
         <button
-          onClick={() => setActiveTab("remote-desktop")}
-          className={`submenu-tab ${activeTab === "remote-desktop" ? "active" : ""}`}
+          onClick={() => setActiveTab("screenshots")}
+          className={`submenu-tab ${activeTab === "screenshots" ? "active" : ""}`}
+        >
+          <FolderOpen size={16} />
+          Screenshots
+        </button>
+        <button
+          onClick={() => setActiveTab("vnc")}
+          className={`submenu-tab ${activeTab === "vnc" ? "active" : ""}`}
         >
           <Monitor size={16} />
-          {t("settings.remoteDesktop")}
+          VNC
         </button>
       </div>
 
@@ -303,63 +321,6 @@ export default function Settings() {
             </div>
           </div>
 
-          {/* Screenshot Settings */}
-          <div className="panel">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="panel-title flex items-center gap-2 mb-0">
-                <FolderOpen size={18} /> {t("settings.screenshots")}
-              </h3>
-              <button className="btn-primary" onClick={saveGeneralSettings} disabled={isSavingGeneral}>
-                <Save size={16} /> {isSavingGeneral ? t("common.loading") : t("common.save")}
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm text-slate-300">{t("settings.destinationFolder")}</label>
-                <div className="flex gap-2">
-                  <input
-                    className="flex-1 bg-slate-900 border border-slate-800 rounded px-3 py-2 text-sm text-white"
-                    value={formatPath(captureForm.folder)}
-                    onChange={(e) => {
-                      // Normalize path by removing double backslashes
-                      const normalized = e.target.value.replace(/\\\\/g, '\\');
-                      setCaptureForm({ ...captureForm, folder: normalized });
-                    }}
-                  />
-                  <button className="btn-outline" type="button" onClick={() => setShowPicker(true)}>
-                    <FolderOpen size={16} />
-                  </button>
-                </div>
-              </div>
-
-              {showPicker && (
-                <FolderPicker
-                  initialPath={captureForm.folder}
-                  onSelect={(path) => {
-                    // Normalize path by removing double backslashes
-                    const normalized = path.replace(/\\\\/g, '\\');
-                    setCaptureForm({ ...captureForm, folder: normalized });
-                    setShowPicker(false);
-                  }}
-                  onCancel={() => setShowPicker(false)}
-                />
-              )}
-
-              <div className="space-y-2">
-                <label className="text-sm text-slate-300">{t("settings.filenamePattern")}</label>
-                <input
-                  className="input-text"
-                  value={captureForm.filenamePattern}
-                  onChange={(e) => setCaptureForm({ ...captureForm, filenamePattern: e.target.value })}
-                  placeholder="screenshot_{timestamp}.png"
-                />
-                <p className="text-xs text-slate-500">
-                  Example: {formatPath(captureForm.folder)}\{(captureForm.filenamePattern || "screenshot_{timestamp}.png").replace("{timestamp}", new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14))}
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
       )}
 
@@ -514,6 +475,69 @@ export default function Settings() {
 
       {/* Logging Settings */}
       {activeTab === "logging" && <LoggingSettingsTab />}
+
+      {/* Screenshots Settings */}
+      {activeTab === "screenshots" && (
+        <div className="panel">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="panel-title flex items-center gap-2 mb-0">
+              <FolderOpen size={18} /> Screenshots
+            </h3>
+            <button className="btn-primary" onClick={saveGeneralSettings} disabled={isSavingGeneral}>
+              <Save size={16} /> {isSavingGeneral ? t("common.loading") : t("common.save")}
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-sm text-slate-300">{t("settings.destinationFolder")}</label>
+              <div className="flex gap-2">
+                <input
+                  className="flex-1 bg-slate-900 border border-slate-800 rounded px-3 py-2 text-sm text-white"
+                  value={formatPath(captureForm.folder)}
+                  onChange={(e) => {
+                    // Normalize path by removing double backslashes
+                    const normalized = e.target.value.replace(/\\\\/g, '\\');
+                    setCaptureForm({ ...captureForm, folder: normalized });
+                  }}
+                />
+                <button className="btn-outline" type="button" onClick={() => setShowPicker(true)}>
+                  <FolderOpen size={16} />
+                </button>
+              </div>
+            </div>
+
+            {showPicker && (
+              <FolderPicker
+                initialPath={captureForm.folder}
+                onSelect={(path) => {
+                  // Normalize path by removing double backslashes
+                  const normalized = path.replace(/\\\\/g, '\\');
+                  setCaptureForm({ ...captureForm, folder: normalized });
+                  setShowPicker(false);
+                }}
+                onCancel={() => setShowPicker(false)}
+              />
+            )}
+
+            <div className="space-y-2">
+              <label className="text-sm text-slate-300">{t("settings.filenamePattern")}</label>
+              <input
+                className="input-text"
+                value={captureForm.filenamePattern}
+                onChange={(e) => setCaptureForm({ ...captureForm, filenamePattern: e.target.value })}
+                placeholder="screenshot_{timestamp}.png"
+              />
+              <p className="text-xs text-slate-500">
+                Example: {formatPath(captureForm.folder)}\{(captureForm.filenamePattern || "screenshot_{timestamp}.png").replace("{timestamp}", new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 14))}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VNC Settings */}
+      {activeTab === "vnc" && <RemoteDesktopSettingsTab />}
     </section>
   );
 }
@@ -527,14 +551,30 @@ function LoggingSettingsTab() {
     minimumLevel: "Information",
     maxFileSizeBytes: 10 * 1024 * 1024, // 10 MB
     maxFilesPerDay: 5,
-    enableSizeRotation: true
+    enableSizeRotation: true,
+    componentEnabled: {
+      VNC: true,
+      DiskMonitor: true,
+      ApplicationMonitor: true,
+      Screenshots: true,
+      General: true
+    }
   });
   const [showLoggingPicker, setShowLoggingPicker] = useState(false);
   const [isSavingLogging, setIsSavingLogging] = useState(false);
 
   useEffect(() => {
     if (loggingData) {
-      setLoggingForm(loggingData);
+      setLoggingForm({
+        ...loggingData,
+        componentEnabled: loggingData.componentEnabled || {
+          VNC: true,
+          DiskMonitor: true,
+          ApplicationMonitor: true,
+          Screenshots: true,
+          General: true
+        }
+      });
     }
   }, [loggingData]);
 
@@ -546,10 +586,10 @@ function LoggingSettingsTab() {
         body: JSON.stringify(loggingForm)
       });
       await mutateLogging();
-      alert("Logging settings saved!");
+      showToast("Logging settings saved!", "success");
     } catch (err) {
       console.error("Failed to save logging settings:", err);
-      alert(`Failed to save: ${err instanceof Error ? err.message : String(err)}`);
+      showToast(`Failed to save logging settings: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setIsSavingLogging(false);
     }
@@ -668,6 +708,57 @@ function LoggingSettingsTab() {
         </div>
       </div>
 
+      <div className="panel">
+        <h3 className="panel-title flex items-center gap-2">
+          <Monitor size={18} /> Component Logging
+        </h3>
+        <div className="space-y-4">
+          <p className="text-sm text-slate-400">
+            Enable or disable logging for specific components. Each component writes to its own log file in a subfolder.
+          </p>
+          
+          <div className="space-y-3">
+            {["VNC", "DiskMonitor", "ApplicationMonitor", "Screenshots", "General"].map((component) => (
+              <div key={component} className="flex items-center justify-between p-3 bg-slate-900/50 rounded border border-slate-800">
+                <div>
+                  <label className="text-sm font-medium text-slate-300 cursor-pointer" htmlFor={`component-${component}`}>
+                    {component}
+                  </label>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {component === "VNC" && "VNC server and connection logs"}
+                    {component === "DiskMonitor" && "Disk and folder monitoring logs"}
+                    {component === "ApplicationMonitor" && "Application monitoring and restart logs"}
+                    {component === "Screenshots" && "Screenshot capture and interval logs"}
+                    {component === "General" && "General application logs"}
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  id={`component-${component}`}
+                  className="checkbox"
+                  checked={loggingForm.componentEnabled?.[component] ?? true}
+                  onChange={(e) => {
+                    setLoggingForm({
+                      ...loggingForm,
+                      componentEnabled: {
+                        ...loggingForm.componentEnabled,
+                        [component]: e.target.checked
+                      }
+                    });
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="pt-4 border-t border-slate-800">
+            <button className="btn-primary" onClick={saveLoggingSettings} disabled={isSavingLogging}>
+              <Save size={16} /> {isSavingLogging ? "Saving…" : "Save Component Settings"}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {showLoggingPicker && (
         <FolderPicker
           initialPath={loggingForm.folder}
@@ -696,7 +787,8 @@ function RemoteDesktopSettingsTab() {
     enabled: false,
     port: 5900,
     allowRemote: false,
-    hasPassword: false
+    hasPassword: false,
+    autoStart: false
   });
 
   useEffect(() => {
@@ -714,14 +806,15 @@ function RemoteDesktopSettingsTab() {
           enabled: vncForm.enabled,
           port: vncForm.port,
           allowRemote: vncForm.allowRemote,
+          autoStart: vncForm.autoStart,
           password: password || undefined
         })
       });
       await mutateConfig();
       setPassword("");
-      alert(t("settings.remoteDesktop.saveSuccess"));
+      showToast(t("settings.remoteDesktop.saveSuccess"), "success");
     } catch (err) {
-      alert(t("settings.remoteDesktop.saveFailure", { message: err instanceof Error ? err.message : String(err) }));
+      showToast(t("settings.remoteDesktop.saveFailure", { message: err instanceof Error ? err.message : String(err) }), "error");
     } finally {
       setIsSaving(false);
     }
@@ -766,6 +859,19 @@ function RemoteDesktopSettingsTab() {
               value={vncForm.port}
               onChange={(e) => setVncForm({ ...vncForm, port: parseInt(e.target.value) || 5900 })}
             />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="vnc-auto-start"
+              className="checkbox"
+              checked={vncForm.autoStart ?? false}
+              onChange={(e) => setVncForm({ ...vncForm, autoStart: e.target.checked })}
+            />
+            <label htmlFor="vnc-auto-start" className="text-sm text-slate-300 cursor-pointer">
+              Auto-start VNC server when Weasel starts
+            </label>
           </div>
 
           <div>

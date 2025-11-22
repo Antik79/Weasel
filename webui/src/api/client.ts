@@ -125,3 +125,43 @@ export function download(path: string) {
   window.open(url.toString(), "_blank");
 }
 
+// System API functions
+export async function getSystemVersion(): Promise<{ version: string; buildDate?: string }> {
+  return api<{ version: string; buildDate?: string }>("/api/system/version");
+}
+
+// VNC API functions
+import type { VncConfig, VncStatus } from "../types";
+
+export async function getVncStatus(): Promise<VncStatus> {
+  return api<VncStatus>("/api/vnc/status");
+}
+
+export async function getVncConfig(): Promise<VncConfig> {
+  return api<VncConfig>("/api/vnc/config");
+}
+
+export async function startVncServer(): Promise<{ message: string }> {
+  return api<{ message: string }>("/api/vnc/start", {
+    method: "POST"
+  });
+}
+
+export async function stopVncServer(): Promise<{ message: string }> {
+  return api<{ message: string }>("/api/vnc/stop", {
+    method: "POST"
+  });
+}
+
+export async function updateVncConfig(config: {
+  enabled: boolean;
+  port: number;
+  allowRemote: boolean;
+  password?: string;
+}): Promise<VncConfig> {
+  return api<VncConfig>("/api/vnc/config", {
+    method: "PUT",
+    body: JSON.stringify(config)
+  });
+}
+

@@ -72,6 +72,7 @@
   padding: var(--spacing-xs);
   border-radius: var(--radius-lg);
   width: fit-content;
+  margin-top: var(--spacing-sm);
 }
 
 .submenu-tab {

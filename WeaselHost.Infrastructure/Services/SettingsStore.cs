@@ -188,6 +188,17 @@ public sealed class SettingsStore : ISettingsStore
         loggingNode["MaxFileSizeBytes"] = options.MaxFileSizeBytes;
         loggingNode["MaxFilesPerDay"] = options.MaxFilesPerDay;
         loggingNode["EnableSizeRotation"] = options.EnableSizeRotation;
+        
+        // Save component-specific logging settings
+        if (options.ComponentEnabled != null && options.ComponentEnabled.Count > 0)
+        {
+            var componentEnabledNode = new JsonObject();
+            foreach (var kvp in options.ComponentEnabled)
+            {
+                componentEnabledNode[kvp.Key] = kvp.Value;
+            }
+            loggingNode["ComponentEnabled"] = componentEnabledNode;
+        }
 
         weaselHostNode["Logging"] = loggingNode;
 
@@ -217,6 +228,7 @@ public sealed class SettingsStore : ISettingsStore
         vncNode["Enabled"] = options.Enabled;
         vncNode["Port"] = options.Port;
         vncNode["AllowRemote"] = options.AllowRemote;
+        vncNode["AutoStart"] = options.AutoStart;
         // Store password only if provided (don't overwrite with null)
         if (!string.IsNullOrWhiteSpace(options.Password))
         {

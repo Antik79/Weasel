@@ -17,6 +17,11 @@ public class WeaselHostOptions
     public SmtpOptions Smtp { get; set; } = new();
     public VncOptions Vnc { get; set; } = new();
     public string? CertificatePassword { get; set; }
+    
+    /// <summary>
+    /// Application version. Format: Major.Minor.Patch[-prerelease]
+    /// </summary>
+    public string Version { get; set; } = "1.0.0-alpha";
 }
 
 public class WebServerOptions
@@ -88,6 +93,19 @@ public class LoggingOptions
     /// Default: true
     /// </summary>
     public bool EnableSizeRotation { get; set; } = true;
+
+    /// <summary>
+    /// Component-specific logging enable flags. Key is the component name (e.g., "VNC", "DiskMonitor", "ApplicationMonitor", "Screenshots", "General").
+    /// If a component is not in the dictionary, it defaults to enabled.
+    /// </summary>
+    public Dictionary<string, bool> ComponentEnabled { get; set; } = new()
+    {
+        { "VNC", true },
+        { "DiskMonitor", true },
+        { "ApplicationMonitor", true },
+        { "Screenshots", true },
+        { "General", true }
+    };
 }
 
 public class DiskMonitoringOptions

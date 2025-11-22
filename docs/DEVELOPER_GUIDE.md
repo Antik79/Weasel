@@ -74,21 +74,62 @@ Weasel/
 The API is defined in `WeaselHost.Web/Program.cs`. Key groups include:
 
 - `/api/fs`: File system operations (browse, read, write, upload, bulk actions).
-- `/api/system`: System information, event logs, screenshots.
+- `/api/system`: System information, event logs, screenshots, version.
 - `/api/processes`: Process management.
 - `/api/services`: Windows service management.
 - `/api/power`: Power control (shutdown, restart, lock).
-- `/api/packages`: Winget package management.
-- `/api/disk-monitoring`: Disk usage monitoring and configuration.
-- `/api/settings`: Application configuration.
+- `/api/packages`: Winget package management (install, uninstall, search, show).
+- `/api/disk-monitoring`: Storage monitoring and configuration (drives and folders).
+- `/api/application-monitor`: Application monitoring and configuration.
+- `/api/vnc`: VNC server management (start, stop, status, configuration).
+- `/api/logs`: Log file browsing and retrieval (with subfolder support).
+- `/api/settings`: Application configuration (general, capture, logging, VNC, etc.).
 
 ## Key Components
 
-### Disk Monitoring
-Implemented in `DiskMonitorService.cs`. It runs as a hosted service (`IHostedService`), periodically checking disk space based on `DiskMonitoringOptions`. It sends email alerts via SMTP if thresholds are breached.
+### Storage Monitor
+Implemented in `DiskMonitorService.cs`. It runs as a hosted service (`IHostedService`), periodically checking disk space and folder sizes based on `DiskMonitoringOptions`. It supports both "Over" and "Under" threshold directions for folder monitoring. It sends email alerts via SMTP if thresholds are breached.
+
+### Application Monitor
+Implemented in `ApplicationMonitorService.cs`. It runs as a hosted service, periodically checking if monitored applications are running. If an application is not running, it automatically restarts it after a configured delay. It includes detailed logging with event log entries.
+
+### VNC Server
+Implemented in `VncService.cs` and `VncConnectionHandler.cs`. The VNC server implements the RFB protocol for remote desktop access. It includes:
+- Password authentication using DES encryption
+- Pixel format conversion for different client formats
+- WebSocket proxy for web-based clients
+- Auto-start capability on application startup
+
+### Logging
+Implemented via `FileLoggerProvider.cs`. Provides structured logging with:
+- Component-specific log files in subfolders
+- Automatic log rotation (daily and size-based)
+- Archive support for old logs
+- Per-component enable/disable toggles
+- Log files stored in `%APPDATA%\Weasel\Logs\`
 
 ### Authentication
 Implemented via middleware in `Program.cs`. If `Security.RequireAuthentication` is true, requests must include the `X-Weasel-Token` header matching the configured password.
+
+## Frontend Components
+
+### Reusable Components
+
+- **SubmenuNav**: Consistent submenu navigation (`webui/src/components/SubmenuNav.tsx`)
+- **PageLayout**: Standard page layout wrapper (`webui/src/components/PageLayout.tsx`)
+- **SectionPanel**: Consistent panel/section container (`webui/src/components/SectionPanel.tsx`)
+- **Table**: Reusable table component with sorting and locked headers (`webui/src/components/Table.tsx`)
+- **ConfirmDialog**: Confirmation dialog component (`webui/src/components/ConfirmDialog.tsx`)
+- **Toast**: Toast notification system (exported from `App.tsx`)
+- **FilePicker**: File selection dialog (`webui/src/components/FilePicker.tsx`)
+- **FolderPicker**: Folder selection dialog (`webui/src/components/FolderPicker.tsx`)
+- **VncViewer**: VNC client component using noVNC (`webui/src/components/VncViewer.tsx`)
+
+### Layout Patterns
+
+- **Two-Panel Layout**: Used in Files and Logs sections for hierarchical data browsing
+- **Submenu Navigation**: All sections with multiple views use `SubmenuNav` for consistency
+- **Breadcrumbs**: Path navigation for hierarchical structures
 
 ## Building for Release
 

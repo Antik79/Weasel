@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -58,6 +59,22 @@ public sealed class WebServerManager : IAsyncDisposable
             _lifetimeTask = _webApplication.WaitForShutdownAsync(_cts.Token);
 
             _logger.LogInformation("Embedded web server started.");
+
+            // Auto-start VNC server if enabled
+            try
+            {
+                var vncService = _webApplication.Services.GetService<WeaselHost.Core.Abstractions.IVncService>();
+                var vncOptions = _webApplication.Services.GetRequiredService<IOptionsMonitor<WeaselHostOptions>>().CurrentValue.Vnc;
+                if (vncService != null && vncOptions.AutoStart && vncOptions.Enabled)
+                {
+                    _logger.LogInformation("Auto-starting VNC server on port {Port}", vncOptions.Port);
+                    await vncService.StartAsync(vncOptions.Port, vncOptions.Password, vncOptions.AllowRemote, _cts.Token);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to auto-start VNC server");
+            }
         }
         finally
         {

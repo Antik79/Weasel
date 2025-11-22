@@ -23,7 +23,8 @@ import {
   MoreHorizontal,
   Menu,
   Search as SearchIcon,
-  FileEdit
+  FileEdit,
+  HardDrive
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import { api, download, upload } from "../api/client";
@@ -31,6 +32,8 @@ import { FileSystemItem } from "../types";
 import { formatBytes, formatDate } from "../utils/format";
 import ContextMenu from "../components/ContextMenu";
 import { useTranslation } from "../i18n/i18n";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { showToast } from "../App";
 
 const fetcher = async (path: string) => {
   const url = new URL("/api/fs", window.location.origin);
@@ -146,6 +149,19 @@ export default function FileExplorer() {
   });
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileSystemItem } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant?: "danger" | "warning" | "info";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    variant: "info"
+  });
 
   // Persist last path
   useEffect(() => {
@@ -336,7 +352,7 @@ export default function FileExplorer() {
     }
 
     if (!currentPath) {
-      window.alert("Select a folder before uploading files.");
+      showToast("Select a folder before uploading files.", "warning");
       event.target.value = "";
       return;
     }
@@ -349,61 +365,117 @@ export default function FileExplorer() {
         await upload(form);
       }
       await refresh();
+      showToast("Files uploaded successfully", "success");
     } catch (error) {
-      window.alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
     } finally {
       event.target.value = "";
     }
   };
 
+  const [newFolderName, setNewFolderName] = useState("");
+  const [showNewFolderDialog, setShowNewFolderDialog] = useState(false);
+
   const createFolder = async () => {
-    const name = window.prompt("Folder name");
-    if (!name) return;
+    if (!newFolderName.trim()) return;
     if (!currentPath) {
-      window.alert("Select a folder before creating a new folder.");
+      showToast("Select a folder before creating a new folder.", "warning");
       return;
     }
-    await api("/api/fs/directory", {
-      method: "POST",
-      body: JSON.stringify({ parentPath: currentPath, name })
-    });
-    await refresh();
+    try {
+      await api("/api/fs/directory", {
+        method: "POST",
+        body: JSON.stringify({ parentPath: currentPath, name: newFolderName.trim() })
+      });
+      await refresh();
+      setNewFolderName("");
+      setShowNewFolderDialog(false);
+      showToast("Folder created successfully", "success");
+    } catch (error) {
+      showToast(`Failed to create folder: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+    }
   };
+
+  const [newFileName, setNewFileName] = useState("");
+  const [showNewFileDialog, setShowNewFileDialog] = useState(false);
 
   const createFile = () => {
     if (!currentPath) {
-      window.alert("Select a folder before creating a new file.");
+      showToast("Select a folder before creating a new file.", "warning");
       return;
     }
+    setShowNewFileDialog(true);
+  };
 
-    const fileName = window.prompt("File name (e.g. notes.txt)");
-    if (!fileName) return;
-
-    const fullPath = joinPath(currentPath, fileName);
+  const handleCreateFile = () => {
+    if (!newFileName.trim()) return;
+    const fullPath = joinPath(currentPath, newFileName.trim());
     setEditorFile(fullPath);
     setEditorContent("");
     setIsNewFile(true);
+    setNewFileName("");
+    setShowNewFileDialog(false);
   };
+
+  const [itemToDelete, setItemToDelete] = useState<FileSystemItem | null>(null);
 
   const deleteItem = async (item: FileSystemItem) => {
-    if (!window.confirm(`Delete ${item.name}?`)) return;
-    const url = new URL("/api/fs", window.location.origin);
-    url.searchParams.set("path", item.fullPath);
-    await api(url.toString(), { method: "DELETE" });
-    if (editorFile === item.fullPath) {
-      closeEditor();
-    }
-    await refresh();
+    setItemToDelete(item);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete Item",
+      message: `Are you sure you want to delete "${item.name}"?`,
+      onConfirm: async () => {
+        if (!itemToDelete) return;
+        try {
+          const url = new URL("/api/fs", window.location.origin);
+          url.searchParams.set("path", itemToDelete.fullPath);
+          await api(url.toString(), { method: "DELETE" });
+          if (editorFile === itemToDelete.fullPath) {
+            closeEditor();
+          }
+          await refresh();
+          showToast("Item deleted successfully", "success");
+        } catch (error) {
+          showToast(`Failed to delete: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+        } finally {
+          setItemToDelete(null);
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        }
+      },
+      variant: "danger"
+    });
   };
 
+  const [itemToRename, setItemToRename] = useState<FileSystemItem | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [showRenameDialog, setShowRenameDialog] = useState(false);
+
   const renameItem = async (item: FileSystemItem) => {
-    const newName = window.prompt("New name", item.name);
-    if (!newName || newName === item.name) return;
-    await api("/api/fs/rename", {
-      method: "POST",
-      body: JSON.stringify({ path: item.fullPath, newName })
-    });
-    await refresh();
+    setItemToRename(item);
+    setRenameValue(item.name);
+    setShowRenameDialog(true);
+  };
+
+  const handleRename = async () => {
+    if (!itemToRename || !renameValue.trim() || renameValue === itemToRename.name) {
+      setShowRenameDialog(false);
+      return;
+    }
+    try {
+      await api("/api/fs/rename", {
+        method: "POST",
+        body: JSON.stringify({ path: itemToRename.fullPath, newName: renameValue.trim() })
+      });
+      await refresh();
+      showToast("Item renamed successfully", "success");
+    } catch (error) {
+      showToast(`Failed to rename: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+    } finally {
+      setItemToRename(null);
+      setRenameValue("");
+      setShowRenameDialog(false);
+    }
   };
 
   const saveFile = async () => {
@@ -480,7 +552,7 @@ export default function FileExplorer() {
           }
         }, 2000);
       } catch (error) {
-        alert(`Failed to zip folder: ${error instanceof Error ? error.message : String(error)}`);
+        showToast(`Failed to zip folder: ${error instanceof Error ? error.message : String(error)}`, "error");
       }
     } else {
       // For files, download directly
@@ -526,16 +598,33 @@ export default function FileExplorer() {
     await refresh();
   };
 
+  const [bulkDeleteCount, setBulkDeleteCount] = useState(0);
+
   const bulkDelete = async () => {
     if (selectedItems.size === 0) return;
-    if (!window.confirm(`Delete ${selectedItems.size} item(s)?`)) return;
-
-    await api("/api/fs/bulk/delete", {
-      method: "POST",
-      body: JSON.stringify({ paths: Array.from(selectedItems) })
+    setBulkDeleteCount(selectedItems.size);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete Items",
+      message: `Are you sure you want to delete ${selectedItems.size} item(s)?`,
+      onConfirm: async () => {
+        try {
+          await api("/api/fs/bulk/delete", {
+            method: "POST",
+            body: JSON.stringify({ paths: Array.from(selectedItems) })
+          });
+          clearSelection();
+          await refresh();
+          showToast(`${bulkDeleteCount} item(s) deleted successfully`, "success");
+        } catch (error) {
+          showToast(`Failed to delete items: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+        } finally {
+          setBulkDeleteCount(0);
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        }
+      },
+      variant: "danger"
     });
-    clearSelection();
-    await refresh();
   };
 
   const copyToClipboard = () => {
@@ -573,7 +662,7 @@ export default function FileExplorer() {
       clearSelection();
       await refresh();
     } catch (error) {
-      window.alert(`Paste failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Paste failed: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
     }
   };
 
@@ -674,7 +763,7 @@ export default function FileExplorer() {
     setIsDraggingOver(false);
 
     if (!currentPath) {
-      window.alert("Select a folder before uploading files.");
+      showToast("Select a folder before uploading files.", "error");
       return;
     }
 
@@ -690,7 +779,7 @@ export default function FileExplorer() {
       }
       await refresh();
     } catch (error) {
-      window.alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      showToast(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
     }
   };
 
@@ -780,6 +869,11 @@ export default function FileExplorer() {
     setContextMenu({ x: e.clientX, y: e.clientY, item });
   };
 
+  // Determine selected drive based on current path
+  const selectedDrive = useMemo(() => {
+    return drives.find(d => currentPath.startsWith(d.fullPath))?.fullPath || null;
+  }, [currentPath, drives]);
+
   return (
     <section
       className="space-y-4 relative"
@@ -797,34 +891,37 @@ export default function FileExplorer() {
           </div>
         </div>
       )}
-      <header className="space-y-3">
-        {/* Toolbar */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex-shrink-0">
-            <div className="relative">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={t("common.search")}
-                className="px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm w-64 focus:outline-none focus:border-sky-500 pl-9"
-              />
-              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                <SearchIcon size={14} />
-              </div>
-              {searchQuery && (
-                <button
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-                  onClick={() => setSearchQuery("")}
-                  title="Clear search"
-                >
-                  <X size={16} />
-                </button>
-              )}
-            </div>
-          </div>
+      
+      {/* Drives Submenu */}
+      <div className="submenu-container">
+        <button
+          className={`submenu-tab ${!selectedDrive ? "active" : ""}`}
+          onClick={() => {
+            setCurrentPath("");
+            clearSelection();
+          }}
+        >
+          <Folder size={16} />
+          Home
+        </button>
+        {drives.map((drive) => (
+          <button
+            key={drive.fullPath}
+            className={`submenu-tab ${selectedDrive === drive.fullPath ? "active" : ""}`}
+            onClick={() => {
+              setCurrentPath(drive.fullPath);
+              clearSelection();
+            }}
+          >
+            <HardDrive size={16} />
+            {drive.name}
+          </button>
+        ))}
+      </div>
 
-          <div className="flex gap-2 flex-wrap justify-end">
+      <header className="space-y-3">
+        {/* Toolbar - Action buttons only */}
+        <div className="flex items-center justify-end gap-2 flex-wrap">
             {selectedItems.size > 0 && (
               <>
                 <button className="btn-outline" onClick={bulkDownload}>
@@ -856,6 +953,101 @@ export default function FileExplorer() {
                 <Clipboard size={16} />
               </button>
             )}
+            <button className="btn-outline" onClick={() => setShowNewFolderDialog(true)} disabled={!currentPath} title={t("common.newFolder")}>
+              <Plus size={16} />
+            </button>
+            <button className="btn-outline" onClick={createFile} disabled={!currentPath} title={t("common.newFile")}>
+              <FileText size={16} />
+            </button>
+            <label className={`btn-outline cursor-pointer ${!currentPath ? "opacity-50 pointer-events-none" : ""}`} title={t("common.upload")}>
+              <Upload size={16} />
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={uploadFiles}
+                disabled={!currentPath}
+              />
+            </label>
+            <button className="btn-outline" onClick={refresh} title={t("common.refresh")}>
+              <RefreshCcw size={16} />
+            </button>
+        </div>
+
+        {/* Breadcrumbs Line - Moved below toolbar */}
+        <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded border border-slate-800 overflow-hidden">
+          <span className="text-slate-500 flex-shrink-0">{t("common.path")}:</span>
+          <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
+            <button
+              className="text-sm font-medium text-sky-400 hover:text-sky-300 hover:underline flex-shrink-0"
+              onClick={() => {
+                setCurrentPath("");
+                clearSelection();
+              }}
+              title="Go to root"
+            >
+              Home
+            </button>
+            {currentPath && currentPath.split("\\").filter(Boolean).map((segment, index, arr) => {
+              const pathUpToSegment = arr.slice(0, index + 1).join("\\") + "\\";
+              const isLast = index === arr.length - 1;
+              return (
+                <div key={index} className="flex items-center gap-1 flex-shrink-0 min-w-0">
+                  <span className="text-slate-500 flex-shrink-0">/</span>
+                  <button
+                    className={`text-sm font-medium truncate max-w-[150px] ${isLast
+                      ? "text-white"
+                      : "text-sky-400 hover:text-sky-300 hover:underline"
+                      }`}
+                    onClick={() => {
+                      if (!isLast) {
+                        setCurrentPath(pathUpToSegment);
+                        clearSelection();
+                      }
+                    }}
+                    disabled={isLast}
+                    title={pathUpToSegment}
+                  >
+                    {segment}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          {selectedItems.size > 0 && (
+            <span className="text-xs text-sky-400 flex-shrink-0 bg-sky-900/20 px-2 py-1 rounded">
+              {selectedItems.size} {t("files.selected")}
+            </span>
+          )}
+        </div>
+
+        {/* Search and Bookmarks Row - Below Path */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex-shrink-0">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={t("common.search")}
+                className="px-3 py-2 bg-slate-800 border border-slate-700 rounded text-sm w-64 focus:outline-none focus:border-sky-500 pl-9"
+              />
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <SearchIcon size={14} />
+              </div>
+              {searchQuery && (
+                <button
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                  onClick={() => setSearchQuery("")}
+                  title="Clear search"
+                >
+                  <X size={16} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-2 flex-wrap justify-end">
             <div className="relative">
               <button
                 className={`btn-outline ${isCurrentPathBookmarked ? "bg-amber-900/30 border-amber-500" : ""}`}
@@ -910,73 +1102,7 @@ export default function FileExplorer() {
                 )}
               </div>
             )}
-            <button className="btn-outline" onClick={createFolder} title={t("common.newFolder")}>
-              <Plus size={16} />
-            </button>
-            <button className="btn-outline" onClick={createFile} disabled={!currentPath} title={t("common.newFile")}>
-              <FileText size={16} />
-            </button>
-            <label className={`btn-outline cursor-pointer ${!currentPath ? "opacity-50 pointer-events-none" : ""}`} title={t("common.upload")}>
-              <Upload size={16} />
-              <input
-                type="file"
-                multiple
-                className="hidden"
-                onChange={uploadFiles}
-                disabled={!currentPath}
-              />
-            </label>
-            <button className="btn-outline" onClick={refresh} title={t("common.refresh")}>
-              <RefreshCcw size={16} />
-            </button>
           </div>
-        </div>
-
-        {/* Breadcrumbs Line - Moved below toolbar */}
-        <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded border border-slate-800 overflow-hidden">
-          <span className="text-slate-500 flex-shrink-0">{t("common.path")}:</span>
-          <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
-            <button
-              className="text-sm font-medium text-sky-400 hover:text-sky-300 hover:underline flex-shrink-0"
-              onClick={() => {
-                setCurrentPath("");
-                clearSelection();
-              }}
-              title="Go to root"
-            >
-              Home
-            </button>
-            {currentPath && currentPath.split("\\").filter(Boolean).map((segment, index, arr) => {
-              const pathUpToSegment = arr.slice(0, index + 1).join("\\") + "\\";
-              const isLast = index === arr.length - 1;
-              return (
-                <div key={index} className="flex items-center gap-1 flex-shrink-0 min-w-0">
-                  <span className="text-slate-500 flex-shrink-0">/</span>
-                  <button
-                    className={`text-sm font-medium truncate max-w-[150px] ${isLast
-                      ? "text-white"
-                      : "text-sky-400 hover:text-sky-300 hover:underline"
-                      }`}
-                    onClick={() => {
-                      if (!isLast) {
-                        setCurrentPath(pathUpToSegment);
-                        clearSelection();
-                      }
-                    }}
-                    disabled={isLast}
-                    title={pathUpToSegment}
-                  >
-                    {segment}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-          {selectedItems.size > 0 && (
-            <span className="text-xs text-sky-400 flex-shrink-0 bg-sky-900/20 px-2 py-1 rounded">
-              {selectedItems.size} {t("files.selected")}
-            </span>
-          )}
         </div>
       </header>
 
@@ -986,33 +1112,11 @@ export default function FileExplorer() {
         </p>
       )}
 
-      <div className="panel">
-        <h3 className="panel-title">{t("files.drives")}</h3>
-        <div className="flex flex-wrap gap-3">
-          {Array.isArray(drives) && drives.map((drive) => (
-            <button
-              key={drive.fullPath}
-              className={`drive-pill ${currentPath.startsWith(drive.fullPath) ? "active" : ""
-                }`}
-              onClick={() => {
-                setCurrentPath(drive.fullPath);
-                clearSelection();
-              }}
-            >
-              {drive.name}
-            </button>
-          ))}
-          {!drives.length && (
-            <p className="text-sm text-slate-400">No drives detected.</p>
-          )}
-        </div>
-      </div>
-
       <div ref={containerRef} className="flex flex-row gap-2" style={{ height: 'calc(100vh - 140px)', minHeight: '600px' }}>
         {/* Folders Panel (Left - 1/3) */}
         <div className="panel flex flex-col overflow-hidden" style={{ width: `${leftPanelWidth}%`, minWidth: '250px' }}>
           <div className="flex items-center justify-between mb-2 flex-shrink-0">
-            <h3 className="panel-title mb-0">{t("files.directories")}</h3>
+            <h3 className="panel-title mb-0">Folders</h3>
             <div className="flex items-center gap-4 text-xs text-slate-400">
               <button className="hover:text-white flex items-center gap-1" onClick={() => handleSort('name')}>
                 Name {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
@@ -1303,6 +1407,129 @@ export default function FileExplorer() {
             }
           ]}
         />
+      )}
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        variant={confirmDialog.variant}
+      />
+
+      {/* New Folder Dialog */}
+      {showNewFolderDialog && (
+        <div className="modal-backdrop" onClick={() => setShowNewFolderDialog(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="text-lg font-semibold text-white">Create Folder</h3>
+              <button className="icon-btn" onClick={() => setShowNewFolderDialog(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <input
+                className="input-text w-full"
+                placeholder="Folder name"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    createFolder();
+                  } else if (e.key === "Escape") {
+                    setShowNewFolderDialog(false);
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className="btn-outline" onClick={() => setShowNewFolderDialog(false)}>
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={createFolder} disabled={!newFolderName.trim()}>
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New File Dialog */}
+      {showNewFileDialog && (
+        <div className="modal-backdrop" onClick={() => setShowNewFileDialog(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="text-lg font-semibold text-white">Create File</h3>
+              <button className="icon-btn" onClick={() => setShowNewFileDialog(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <input
+                className="input-text w-full"
+                placeholder="File name (e.g. notes.txt)"
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleCreateFile();
+                  } else if (e.key === "Escape") {
+                    setShowNewFileDialog(false);
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className="btn-outline" onClick={() => setShowNewFileDialog(false)}>
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={handleCreateFile} disabled={!newFileName.trim()}>
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rename Dialog */}
+      {showRenameDialog && itemToRename && (
+        <div className="modal-backdrop" onClick={() => setShowRenameDialog(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="text-lg font-semibold text-white">Rename</h3>
+              <button className="icon-btn" onClick={() => setShowRenameDialog(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <input
+                className="input-text w-full"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleRename();
+                  } else if (e.key === "Escape") {
+                    setShowRenameDialog(false);
+                  }
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className="btn-outline" onClick={() => setShowRenameDialog(false)}>
+                Cancel
+              </button>
+              <button className="btn-primary" onClick={handleRename} disabled={!renameValue.trim() || renameValue === itemToRename.name}>
+                Rename
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </section>
   );

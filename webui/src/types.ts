@@ -142,11 +142,13 @@ export interface LogFileInfo {
 export interface LogsResponse {
   folder: string;
   files: LogFileInfo[];
+  subfolders?: string[];
 }
 
 export interface LoggingConfig {
   folder: string;
   retentionDays: number;
+  componentEnabled: Record<string, boolean>;
   minimumLevel: string; // "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None"
   maxFileSizeBytes: number;
   maxFilesPerDay: number;
@@ -226,6 +228,7 @@ export interface VncConfig {
   port: number;
   allowRemote: boolean;
   hasPassword: boolean;
+  autoStart?: boolean;
 }
 
 export interface VncStatus {

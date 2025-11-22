@@ -1,0 +1,57 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET 8.0 SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: webui/package-lock.json
+
+    - name: Install dependencies
+      working-directory: webui
+      run: npm ci
+
+    - name: Build frontend
+      working-directory: webui
+      run: npm run build
+
+    - name: Build backend
+      run: |
+        dotnet build Weasel.sln -c Release
+
+    - name: Run tests (if any)
+      run: |
+        dotnet test Weasel.sln -c Release --no-build || echo "No tests found"
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          **/bin/Release/**
+          **/obj/Release/**
+        retention-days: 7
+

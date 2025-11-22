@@ -1,22 +1,52 @@
 import { useState } from "react";
 import { Power, Shield, Lock } from "lucide-react";
 import { api } from "../api/client";
+import { showToast } from "../App";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 export default function PowerControls() {
   const [isBusy, setIsBusy] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant?: "danger" | "warning" | "info";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    variant: "info"
+  });
+  const [pendingAction, setPendingAction] = useState<{ endpoint: string; payload?: unknown } | null>(null);
 
   const invoke = async (endpoint: string, payload?: unknown) => {
-    if (!window.confirm("Are you sure?")) return;
-    setIsBusy(true);
-    try {
-      await api(endpoint, {
-        method: "POST",
-        body: JSON.stringify(payload ?? {})
-      });
-      alert("Command sent.");
-    } finally {
-      setIsBusy(false);
-    }
+    setPendingAction({ endpoint, payload });
+    setConfirmDialog({
+      isOpen: true,
+      title: "Confirm Action",
+      message: "Are you sure?",
+      onConfirm: async () => {
+        if (!pendingAction) return;
+        setIsBusy(true);
+        try {
+          await api(pendingAction.endpoint, {
+            method: "POST",
+            body: JSON.stringify(pendingAction.payload ?? {})
+          });
+          showToast("Command sent.", "success");
+          setPendingAction(null);
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        } catch (error) {
+          showToast(`Failed to send command: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        } finally {
+          setIsBusy(false);
+        }
+      },
+      variant: "warning"
+    });
   };
 
   return (
@@ -48,6 +78,18 @@ export default function PowerControls() {
       <p className="text-xs text-slate-400">
         Commands execute immediately on the local device.
       </p>
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => {
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+          setPendingAction(null);
+        }}
+        variant={confirmDialog.variant}
+      />
     </section>
   );
 }

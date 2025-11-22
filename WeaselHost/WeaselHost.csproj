@@ -38,6 +38,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <ApplicationIcon>..\assets\logo.ico</ApplicationIcon>
+    <Version>1.0.0-alpha</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
   </PropertyGroup>
 
   <Target Name="BeforeBuild" BeforeTargets="Build">

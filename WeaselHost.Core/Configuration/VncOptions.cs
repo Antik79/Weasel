@@ -1,0 +1,15 @@
+namespace WeaselHost.Core.Configuration;
+
+public class VncOptions
+{
+    public bool Enabled { get; set; } = false;
+
+    public int Port { get; set; } = 5900;
+
+    public string? Password { get; set; }
+
+    public bool AllowRemote { get; set; } = false;
+
+    public bool AutoStart { get; set; } = false;
+}
+

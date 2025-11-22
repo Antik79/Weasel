@@ -80,7 +80,7 @@
     "items": "items",
     "empty": "This folder is empty",
     "drives": "Drives",
-    "directories": "Directories",
+    "directories": "Folders",
     "files": "Files"
   },
   "system": {
@@ -101,7 +101,7 @@
     "tabs": {
       "screenshots": "Screenshots",
       "logs": "Logs",
-      "disk": "Disk Monitoring",
+      "disk": "Storage Monitor",
       "appMonitor": "Application Monitor",
       "remoteDesktop": "Remote Desktop",
       "processes": "Processes"
@@ -136,8 +136,8 @@
       "loadingEntry": "Loading log…"
     },
     "disk": {
-      "saveSuccess": "Disk monitoring configuration saved!",
-      "saveFailure": "Failed to save disk monitoring configuration: {{message}}",
+      "saveSuccess": "Storage monitoring configuration saved!",
+      "saveFailure": "Failed to save storage monitoring configuration: {{message}}",
       "recipientPrompt": "Enter email address",
       "title": "Disk Space Monitoring",
       "statusActive": "Monitoring active",
@@ -198,13 +198,13 @@
       "saving": "Saving…",
       "namePlaceholder": "Application Name",
       "executablePath": "Executable Path",
-      "executablePlaceholder": "C:\\\\Program Files\\\\App\\\\app.exe",
+      "executablePlaceholder": "C:\\Program Files\\App\\app.exe",
       "checkInterval": "Check Interval (seconds)",
       "restartDelay": "Restart Delay (seconds)",
       "arguments": "Arguments (optional)",
       "argumentsPlaceholder": "--arg1 --arg2",
       "workingDirectory": "Working Directory (optional)",
-      "workingPlaceholder": "C:\\\\Working\\\\Directory",
+      "workingPlaceholder": "C:\\Working\\Directory",
       "eventLogSource": "Event Log Source (optional)",
       "eventLogPlaceholder": "Application Name",
       "eventLogHint": "Windows Event Log source name to monitor for crashes"

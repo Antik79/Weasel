@@ -5,11 +5,27 @@ import { api } from "../api/client";
 import { ProcessInfo, ApplicationMonitorConfig } from "../types";
 import { formatBytes, formatDate } from "../utils/format";
 import Table, { TableColumn } from "../components/Table";
+import { showToast } from "../App";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 const fetcher = () => api<ProcessInfo[]>("/api/processes");
 
 export default function TaskManager() {
   const [query, setQuery] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant?: "danger" | "warning" | "info";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+    variant: "info"
+  });
+  const [processToKill, setProcessToKill] = useState<number | null>(null);
   const { data, isLoading, mutate } = useSWR("processes", fetcher, {
     refreshInterval: 5000
   });
@@ -23,21 +39,31 @@ export default function TaskManager() {
   }, [data, query]);
 
   const kill = async (pid: number) => {
-    if (
-      !window.confirm(
-        `Are you sure you want to terminate process ${pid}? This cannot be undone.`
-      )
-    ) {
-      return;
-    }
-
-    await api(`/api/processes/${pid}`, { method: "DELETE" });
-    await mutate();
+    setProcessToKill(pid);
+    setConfirmDialog({
+      isOpen: true,
+      title: "Terminate Process",
+      message: `Are you sure you want to terminate process ${pid}? This cannot be undone.`,
+      onConfirm: async () => {
+        if (processToKill === null) return;
+        try {
+          await api(`/api/processes/${processToKill}`, { method: "DELETE" });
+          await mutate();
+          showToast(`Process ${processToKill} terminated successfully`, "success");
+          setProcessToKill(null);
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        } catch (error) {
+          showToast(`Failed to terminate process: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+          setConfirmDialog({ ...confirmDialog, isOpen: false });
+        }
+      },
+      variant: "danger"
+    });
   };
 
   const addToApplicationMonitor = useCallback(async (process: ProcessInfo) => {
     if (!process.executablePath) {
-      alert(`Cannot add process "${process.name}" to Application Monitor: executable path is not available.`);
+      showToast(`Cannot add process "${process.name}" to Application Monitor: executable path is not available.`, "error");
       return;
     }
 
@@ -51,7 +77,7 @@ export default function TaskManager() {
       );
       
       if (existingApp) {
-        alert(`Process "${process.name}" is already in Application Monitor.`);
+        showToast(`Process "${process.name}" is already in Application Monitor.`, "error");
         return;
       }
 
@@ -80,11 +106,11 @@ export default function TaskManager() {
         body: JSON.stringify(updatedConfig)
       });
 
-      alert(`Process "${process.name}" has been added to Application Monitor. You can configure it in Tools → Application Monitor.`);
+      showToast(`Process "${process.name}" has been added to Application Monitor. You can configure it in Tools → Application Monitor.`, "success");
     } catch (err) {
       console.error("Failed to add process to Application Monitor:", err);
       const message = err instanceof Error ? err.message : String(err);
-      alert(`Failed to add process to Application Monitor: ${message}`);
+      showToast(`Failed to add process to Application Monitor: ${message}`, "error");
     }
   }, []);
 
