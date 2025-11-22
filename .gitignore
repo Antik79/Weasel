@@ -13,7 +13,7 @@
 .claude/
 build.cmd
 build.ps1
-CLAUDE.md
+CLAUDE*.md
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
