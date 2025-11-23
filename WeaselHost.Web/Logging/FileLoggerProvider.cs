@@ -77,7 +77,14 @@ internal sealed class FileLoggerProvider : ILoggerProvider
         {
             // Check if we need to archive old files (new day started)
             ArchiveOldFiles(folder, componentName, datePrefix, baseFolder);
-            
+
+            // If this is a General log write, also archive all component folders
+            // This ensures inactive components get their old logs archived too
+            if (componentName == "General")
+            {
+                ArchiveAllComponentFolders(baseFolder, datePrefix);
+            }
+
             // Check if we need to rotate based on file size
             if (options.EnableSizeRotation && options.MaxFileSizeBytes > 0 && File.Exists(path))
             {
@@ -98,6 +105,13 @@ internal sealed class FileLoggerProvider : ILoggerProvider
     {
         try
         {
+            // Don't archive if we're already in an Archive folder
+            if (folder.EndsWith("Archive", StringComparison.OrdinalIgnoreCase) ||
+                folder.Contains($"{Path.DirectorySeparatorChar}Archive{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             // Get all log files in the folder (excluding Archive subfolder)
             var logFiles = Directory.GetFiles(folder, "*.log", SearchOption.TopDirectoryOnly)
                 .Where(f => !Path.GetDirectoryName(f)!.EndsWith("Archive", StringComparison.OrdinalIgnoreCase))
@@ -162,6 +176,32 @@ internal sealed class FileLoggerProvider : ILoggerProvider
         catch
         {
             // Ignore archive errors
+        }
+    }
+
+    private static void ArchiveAllComponentFolders(string baseFolder, string currentDatePrefix)
+    {
+        try
+        {
+            if (!Directory.Exists(baseFolder))
+            {
+                return;
+            }
+
+            // Get all subdirectories (component folders) except Archive
+            var componentFolders = Directory.GetDirectories(baseFolder)
+                .Where(dir => !Path.GetFileName(dir).Equals("Archive", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            foreach (var componentFolder in componentFolders)
+            {
+                var componentName = Path.GetFileName(componentFolder);
+                ArchiveOldFiles(componentFolder, componentName, currentDatePrefix, baseFolder);
+            }
+        }
+        catch
+        {
+            // Ignore errors - archiving is best-effort
         }
     }
 

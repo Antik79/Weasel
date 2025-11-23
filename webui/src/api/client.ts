@@ -165,3 +165,26 @@ export async function updateVncConfig(config: {
   });
 }
 
+// Terminal API functions
+import type { TerminalSession, CreateTerminalRequest, ResizeTerminalRequest } from "../types";
+
+export async function createTerminal(shellType: "cmd" | "powershell" = "cmd"): Promise<TerminalSession> {
+  return api<TerminalSession>("/api/terminal/create", {
+    method: "POST",
+    body: JSON.stringify({ shellType } as CreateTerminalRequest)
+  });
+}
+
+export async function resizeTerminal(id: string, rows: number, cols: number): Promise<void> {
+  return api<void>(`/api/terminal/${encodeURIComponent(id)}/resize`, {
+    method: "POST",
+    body: JSON.stringify({ rows, cols } as ResizeTerminalRequest)
+  });
+}
+
+export async function closeTerminal(id: string): Promise<void> {
+  return api<void>(`/api/terminal/${encodeURIComponent(id)}`, {
+    method: "DELETE"
+  });
+}
+

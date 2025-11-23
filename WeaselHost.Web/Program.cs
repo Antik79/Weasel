@@ -37,7 +37,7 @@ public static class Program
         var builder = WebApplication.CreateBuilder(args ?? Array.Empty<string>());
         builder.Configuration
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-            .AddJsonFile(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Weasel", "config", "appsettings.json"), optional: true, reloadOnChange: true);
+            .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json"), optional: true, reloadOnChange: true);
 
         configureBuilder?.Invoke(builder);
 
@@ -109,7 +109,11 @@ public static class Program
                     path == "/favicon.ico" ||
                     path == "/favicon.png" ||
                     path == "/" ||
-                    path.StartsWith("/index.html", StringComparison.OrdinalIgnoreCase))
+                    path.StartsWith("/index.html", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("/vnc-viewer", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("/terminal-popup", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("/api/vnc/ws", StringComparison.OrdinalIgnoreCase) ||
+                    path.StartsWith("/api/terminal/ws", StringComparison.OrdinalIgnoreCase))
                 {
                     await next();
                     return;
@@ -341,6 +345,7 @@ public static class Program
         MapDiskMonitoringEndpoints(api.MapGroup("/disk-monitoring"));
         MapApplicationMonitorEndpoints(api.MapGroup("/application-monitor"));
         MapVncEndpoints(api.MapGroup("/vnc"));
+        MapTerminalEndpoints(api.MapGroup("/terminal"));
 
         // SPA fallback - serve index.html for all non-API routes
         app.MapFallbackToFile("index.html");
@@ -516,12 +521,21 @@ public static class Program
         group.MapGet("/capture", (IOptionsMonitor<WeaselHostOptions> options) =>
             Results.Ok(options.CurrentValue.Capture));
 
-        group.MapPut("/capture", async (CaptureOptions request, ISettingsStore settingsStore, IOptionsMonitor<WeaselHostOptions> optionsMonitor, CancellationToken cancellationToken) =>
+        group.MapPut("/capture", async (CaptureOptions request, ISettingsStore settingsStore, IOptionsMonitor<WeaselHostOptions> optionsMonitor, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         {
-            await settingsStore.SaveCaptureSettingsAsync(request, cancellationToken);
-            // Return the current value from options monitor to ensure it reflects saved config
-            await Task.Delay(100, cancellationToken); // Small delay to allow config reload
-            return Results.Ok(optionsMonitor.CurrentValue.Capture);
+            try
+            {
+                await settingsStore.SaveCaptureSettingsAsync(request, cancellationToken);
+                // Return the current value from options monitor to ensure it reflects saved config
+                await Task.Delay(100, cancellationToken); // Small delay to allow config reload
+                return Results.Ok(optionsMonitor.CurrentValue.Capture);
+            }
+            catch (Exception ex)
+            {
+                var logger = loggerFactory.CreateLogger("CaptureSettings");
+                logger.LogError(ex, "Failed to save capture settings");
+                return Results.Problem($"Failed to save settings: {ex.Message}", statusCode: 500);
+            }
         });
 
         group.MapGet("/security", (IOptionsMonitor<WeaselHostOptions> options) =>
@@ -751,11 +765,20 @@ public static class Program
         group.MapGet("/config", (IOptionsMonitor<WeaselHostOptions> options) =>
             Results.Ok(options.CurrentValue.DiskMonitoring));
 
-        group.MapPut("/config", async (DiskMonitoringOptions request, IDiskMonitorService monitor, ISettingsStore settingsStore, CancellationToken cancellationToken) =>
+        group.MapPut("/config", async (DiskMonitoringOptions request, IDiskMonitorService monitor, ISettingsStore settingsStore, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         {
-            await settingsStore.SaveDiskMonitoringSettingsAsync(request, cancellationToken);
-            await monitor.UpdateConfigurationAsync(request, cancellationToken);
-            return Results.Ok(request);
+            try
+            {
+                await settingsStore.SaveDiskMonitoringSettingsAsync(request, cancellationToken);
+                await monitor.UpdateConfigurationAsync(request, cancellationToken);
+                return Results.Ok(request);
+            }
+            catch (Exception ex)
+            {
+                var logger = loggerFactory.CreateLogger("DiskMonitoringConfig");
+                logger.LogError(ex, "Failed to save disk monitoring configuration");
+                return Results.Problem($"Failed to save configuration: {ex.Message}", statusCode: 500);
+            }
         });
 
         group.MapGet("/drives", () =>
@@ -773,10 +796,19 @@ public static class Program
         group.MapGet("/config", (IOptionsMonitor<WeaselHostOptions> options) =>
             Results.Ok(options.CurrentValue.ApplicationMonitor));
 
-        group.MapPut("/config", async (ApplicationMonitorOptions request, ISettingsStore settingsStore, CancellationToken cancellationToken) =>
+        group.MapPut("/config", async (ApplicationMonitorOptions request, ISettingsStore settingsStore, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
         {
-            await settingsStore.SaveApplicationMonitorSettingsAsync(request, cancellationToken);
-            return Results.Ok(request);
+            try
+            {
+                await settingsStore.SaveApplicationMonitorSettingsAsync(request, cancellationToken);
+                return Results.Ok(request);
+            }
+            catch (Exception ex)
+            {
+                var logger = loggerFactory.CreateLogger("ApplicationMonitorConfig");
+                logger.LogError(ex, "Failed to save application monitor configuration");
+                return Results.Problem($"Failed to save configuration: {ex.Message}", statusCode: 500);
+            }
         });
 
         group.MapGet("/status", () =>
@@ -935,6 +967,212 @@ public static class Program
         });
     }
 
+    private static void MapTerminalEndpoints(RouteGroupBuilder group)
+    {
+        group.MapPost("/create", async (CreateTerminalRequest request, ITerminalService terminalService, CancellationToken cancellationToken) =>
+        {
+            var shellType = request.ShellType?.ToLowerInvariant() ?? "cmd";
+            if (shellType != "cmd" && shellType != "powershell")
+            {
+                return Results.BadRequest(new { error = "Invalid shell type. Must be 'cmd' or 'powershell'" });
+            }
+
+            try
+            {
+                var session = await terminalService.CreateTerminalAsync(shellType, cancellationToken);
+                return Results.Ok(new { id = session.Id, processId = session.ProcessId, shellType = session.ShellType });
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        group.MapPost("/{id}/resize", async (string id, ResizeTerminalRequest request, ITerminalService terminalService, CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await terminalService.ResizeTerminalAsync(id, request.Rows, request.Cols, cancellationToken);
+                return Results.Ok();
+            }
+            catch (InvalidOperationException)
+            {
+                return Results.NotFound(new { error = "Terminal session not found" });
+            }
+        });
+
+        group.MapDelete("/{id}", async (string id, ITerminalService terminalService, CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                await terminalService.CloseTerminalAsync(id, cancellationToken);
+                return Results.Ok();
+            }
+            catch (Exception ex)
+            {
+                return Results.BadRequest(new { error = ex.Message });
+            }
+        });
+
+        group.MapGet("/ws", async (HttpContext context, ITerminalService terminalService, ILoggerFactory loggerFactory) =>
+        {
+            if (!context.WebSockets.IsWebSocketRequest)
+            {
+                return Results.BadRequest("WebSocket request required");
+            }
+
+            var logger = loggerFactory.CreateLogger("TerminalWebSocket");
+            var query = context.Request.Query;
+            var sessionId = query["id"].ToString();
+
+            if (string.IsNullOrEmpty(sessionId))
+            {
+                return Results.BadRequest("Terminal session ID required");
+            }
+
+            var isActive = await terminalService.IsTerminalActiveAsync(sessionId);
+            if (!isActive)
+            {
+                logger.LogWarning("Terminal WebSocket connection attempted for inactive session {SessionId}", sessionId);
+                return Results.BadRequest("Terminal session not found or inactive");
+            }
+
+            logger.LogInformation("Accepting terminal WebSocket connection for session {SessionId}", sessionId);
+            var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+            await ProxyWebSocketToTerminal(webSocket, sessionId, terminalService, context.RequestAborted, logger);
+            return Results.Empty;
+        });
+    }
+
+    private static async Task ProxyWebSocketToTerminal(WebSocket webSocket, string sessionId, ITerminalService terminalService, CancellationToken cancellationToken, ILogger logger)
+    {
+        var inputWriter = terminalService.GetTerminalInputWriter(sessionId);
+        var outputReader = terminalService.GetTerminalOutputReader(sessionId);
+
+        if (inputWriter == null || outputReader == null)
+        {
+            logger.LogError("Terminal streams not available for session {SessionId}", sessionId);
+            await webSocket.CloseAsync(WebSocketCloseStatus.InternalServerError, "Terminal streams not available", cancellationToken);
+            return;
+        }
+
+        try
+        {
+            // Start reading from terminal output and sending to WebSocket
+            var receiveFromTerminal = Task.Run(async () =>
+            {
+                var buffer = new char[4096];
+                try
+                {
+                    while (!cancellationToken.IsCancellationRequested && webSocket.State == WebSocketState.Open)
+                    {
+                        // Use ReadAsync with cancellation token
+                        var charsRead = await outputReader.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+                        if (charsRead == 0)
+                        {
+                            // Process may have exited
+                            logger.LogInformation("Terminal output stream closed for session {SessionId}", sessionId);
+                            break;
+                        }
+
+                        // Convert char buffer to bytes (UTF-8)
+                        var encoding = System.Text.Encoding.UTF8;
+                        var bytes = encoding.GetBytes(buffer, 0, charsRead);
+
+                        if (webSocket.State == WebSocketState.Open)
+                        {
+                            await webSocket.SendAsync(
+                                new ArraySegment<byte>(bytes),
+                                WebSocketMessageType.Text,
+                                true,
+                                cancellationToken);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error reading from terminal output for session {SessionId}", sessionId);
+                }
+            }, cancellationToken);
+
+            // Start reading from WebSocket and writing to terminal input
+            var receiveFromWebSocket = Task.Run(async () =>
+            {
+                var buffer = new byte[4096];
+                try
+                {
+                    while (!cancellationToken.IsCancellationRequested && webSocket.State == WebSocketState.Open)
+                    {
+                        var result = await webSocket.ReceiveAsync(
+                            new ArraySegment<byte>(buffer),
+                            cancellationToken);
+
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            logger.LogInformation("WebSocket client closed connection for session {SessionId}", sessionId);
+                            break;
+                        }
+
+                        if (result.MessageType == WebSocketMessageType.Text && result.Count > 0)
+                        {
+                            // Handle resize messages (JSON format: {"type":"resize","rows":24,"cols":80})
+                            var message = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
+                            if (message.StartsWith("{\"type\":\"resize\"", StringComparison.OrdinalIgnoreCase))
+                            {
+                                try
+                                {
+                                    var resizeData = System.Text.Json.JsonSerializer.Deserialize<ResizeMessage>(message);
+                                    if (resizeData != null && resizeData.Type == "resize")
+                                    {
+                                        await terminalService.ResizeTerminalAsync(sessionId, resizeData.Rows, resizeData.Cols, cancellationToken);
+                                        continue;
+                                    }
+                                }
+                                catch
+                                {
+                                    // Ignore JSON parse errors
+                                }
+                            }
+
+                            // Send to terminal input
+                            var text = System.Text.Encoding.UTF8.GetString(buffer, 0, result.Count);
+                            await inputWriter.WriteAsync(text);
+                            await inputWriter.FlushAsync();
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Error reading from WebSocket for session {SessionId}", sessionId);
+                }
+            }, cancellationToken);
+
+            await Task.WhenAny(receiveFromTerminal, receiveFromWebSocket);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error in terminal WebSocket proxy for session {SessionId}", sessionId);
+        }
+        finally
+        {
+            if (webSocket.State == WebSocketState.Open)
+            {
+                try
+                {
+                    await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Connection closed", cancellationToken);
+                }
+                catch
+                {
+                    // Ignore close errors
+                }
+            }
+        }
+    }
+
+    private record CreateTerminalRequest(string? ShellType);
+    private record ResizeTerminalRequest(int Rows, int Cols);
+    private record ResizeMessage(string Type, int Rows, int Cols);
+
     private static async Task ProxyWebSocketToVnc(WebSocket webSocket, string targetHost, int targetPort, CancellationToken cancellationToken, ILogger logger)
     {
         TcpClient? vncClient = null;
@@ -951,7 +1189,7 @@ public static class Program
             // Start bidirectional proxying
             var receiveFromVnc = Task.Run(async () =>
             {
-                var buffer = new byte[4096];
+                var buffer = new byte[65536]; // 64KB buffer
                 long totalBytesSent = 0;
                 try
                 {
@@ -960,27 +1198,31 @@ public static class Program
                         var bytesRead = await vncStream!.ReadAsync(buffer, cancellationToken);
                         if (bytesRead == 0)
                         {
-                            logger.LogInformation("VNC server closed connection (0 bytes read)");
+                            logger.LogInformation("VNC server closed connection");
                             break;
                         }
+
                         if (webSocket.State == WebSocketState.Open)
                         {
-                            totalBytesSent += bytesRead;
-                            // Log first few messages in detail for debugging
-                            if (totalBytesSent <= 200)
-                            {
-                                logger.LogInformation("Forwarding {Bytes} bytes from VNC server to WebSocket client (total: {Total}). First bytes: {Hex}", 
-                                    bytesRead, totalBytesSent, BitConverter.ToString(buffer, 0, Math.Min(bytesRead, 20)));
-                            }
-                            else
-                            {
-                                logger.LogDebug("Forwarding {Bytes} bytes from VNC server to WebSocket client (total: {Total})", bytesRead, totalBytesSent);
-                            }
+                            // Forward all data from VNC server to WebSocket client
+                            // Use endOfMessage=true for each chunk to ensure proper framing
                             await webSocket.SendAsync(
                                 new ArraySegment<byte>(buffer, 0, bytesRead),
                                 WebSocketMessageType.Binary,
-                                true,
+                                endOfMessage: true,
                                 cancellationToken);
+                            totalBytesSent += bytesRead;
+
+                            // Log first few messages for debugging
+                            if (totalBytesSent <= 200)
+                            {
+                                logger.LogInformation("Forwarded {Bytes} bytes from VNC to WebSocket (total: {Total}). First bytes: {Hex}",
+                                    bytesRead, totalBytesSent, BitConverter.ToString(buffer.Take(Math.Min(bytesRead, 20)).ToArray()));
+                            }
+                            else if (bytesRead > 10000)
+                            {
+                                logger.LogDebug("Forwarded {Bytes} bytes from VNC to WebSocket (total: {Total})", bytesRead, totalBytesSent);
+                            }
                         }
                     }
                     logger.LogInformation("VNC to WebSocket proxy ended. Total bytes sent: {Total}", totalBytesSent);

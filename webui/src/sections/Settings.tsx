@@ -6,6 +6,7 @@ import { CaptureSettings, SmtpConfig, LoggingConfig, VncConfig } from "../types"
 import FolderPicker from "../components/FolderPicker";
 import { useTranslation } from "../i18n/i18n";
 import { formatPath, formatBytes } from "../utils/format";
+import { showToast } from "../App";
 
 const captureFetcher = () => api<CaptureSettings>("/api/settings/capture");
 const securityFetcher = () => api<{ requireAuthentication: boolean; hasPassword: boolean }>("/api/settings/security");
@@ -203,7 +204,7 @@ export default function Settings() {
   };
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       {/* Tabs */}
       <div className="submenu-container">
         <button

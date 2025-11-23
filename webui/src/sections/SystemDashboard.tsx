@@ -145,19 +145,17 @@ export default function SystemDashboard() {
 
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="submenu-container">
-          {systemTabs.map(({ key, label, icon }) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`submenu-tab ${tab === key ? "active" : ""}`}
-            >
-              {icon}
-              {label}
-            </button>
-          ))}
-        </div>
+      <div className="submenu-container">
+        {systemTabs.map(({ key, label, icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`submenu-tab ${tab === key ? "active" : ""}`}
+          >
+            {icon}
+            {label}
+          </button>
+        ))}
       </div>
 
       {tab === "overview" && (

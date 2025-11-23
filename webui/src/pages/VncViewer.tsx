@@ -13,7 +13,18 @@ export default function VncViewerPage() {
     const params = new URLSearchParams(window.location.search);
     const host = params.get("host") || localStorage.getItem("vnc_host") || "localhost";
     const port = parseInt(params.get("port") || localStorage.getItem("vnc_port") || "5900", 10);
-    const password = params.get("password") || localStorage.getItem("vnc_password") || undefined;
+    // Decode password from URL (it's encoded when passed via URL params)
+    const passwordParam = params.get("password");
+    const password = passwordParam ? decodeURIComponent(passwordParam) : (localStorage.getItem("vnc_password") || undefined);
+    
+    console.log("VncViewerPage: Extracted connection params", { 
+      host, 
+      port, 
+      passwordProvided: !!password, 
+      passwordLength: password?.length || 0,
+      passwordFromUrl: !!passwordParam,
+      passwordFromStorage: !passwordParam && !!localStorage.getItem("vnc_password")
+    });
 
     setConnectionParams({ host, port, password });
 

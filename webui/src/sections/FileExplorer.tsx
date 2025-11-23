@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, Suspense, lazy } from "react";
 import useSWR from "swr";
 import {
   Download,
@@ -26,7 +26,9 @@ import {
   FileEdit,
   HardDrive
 } from "lucide-react";
-import Editor from "@monaco-editor/react";
+
+// Lazy load Monaco Editor - only loads when editing a file
+const Editor = lazy(() => import("@monaco-editor/react"));
 import { api, download, upload } from "../api/client";
 import { FileSystemItem } from "../types";
 import { formatBytes, formatDate } from "../utils/format";
@@ -919,7 +921,7 @@ export default function FileExplorer() {
         ))}
       </div>
 
-      <header className="space-y-3">
+      <div className="space-y-3">
         {/* Toolbar - Action buttons only */}
         <div className="flex items-center justify-end gap-2 flex-wrap">
             {selectedItems.size > 0 && (
@@ -953,25 +955,6 @@ export default function FileExplorer() {
                 <Clipboard size={16} />
               </button>
             )}
-            <button className="btn-outline" onClick={() => setShowNewFolderDialog(true)} disabled={!currentPath} title={t("common.newFolder")}>
-              <Plus size={16} />
-            </button>
-            <button className="btn-outline" onClick={createFile} disabled={!currentPath} title={t("common.newFile")}>
-              <FileText size={16} />
-            </button>
-            <label className={`btn-outline cursor-pointer ${!currentPath ? "opacity-50 pointer-events-none" : ""}`} title={t("common.upload")}>
-              <Upload size={16} />
-              <input
-                type="file"
-                multiple
-                className="hidden"
-                onChange={uploadFiles}
-                disabled={!currentPath}
-              />
-            </label>
-            <button className="btn-outline" onClick={refresh} title={t("common.refresh")}>
-              <RefreshCcw size={16} />
-            </button>
         </div>
 
         {/* Breadcrumbs Line - Moved below toolbar */}
@@ -1104,7 +1087,7 @@ export default function FileExplorer() {
             )}
           </div>
         </div>
-      </header>
+      </div>
 
       {error && (
         <p className="text-red-400 text-sm">
@@ -1116,7 +1099,15 @@ export default function FileExplorer() {
         {/* Folders Panel (Left - 1/3) */}
         <div className="panel flex flex-col overflow-hidden" style={{ width: `${leftPanelWidth}%`, minWidth: '250px' }}>
           <div className="flex items-center justify-between mb-2 flex-shrink-0">
-            <h3 className="panel-title mb-0">Folders</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="panel-title mb-0">Folders</h3>
+              <button className="icon-btn" onClick={() => setShowNewFolderDialog(true)} title="New Folder">
+                <Plus size={16} />
+              </button>
+              <button className="icon-btn" onClick={refresh} title="Refresh">
+                <RefreshCcw size={16} />
+              </button>
+            </div>
             <div className="flex items-center gap-4 text-xs text-slate-400">
               <button className="hover:text-white flex items-center gap-1" onClick={() => handleSort('name')}>
                 Name {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
@@ -1188,7 +1179,18 @@ export default function FileExplorer() {
         {/* Files Panel (Right - 2/3) */}
         <div className="panel flex-1 flex flex-col overflow-hidden" style={{ minWidth: '400px' }}>
           <div className="flex items-center justify-between mb-2 flex-shrink-0">
-            <h3 className="panel-title mb-0">{t("files.files")}</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="panel-title mb-0">{t("files.files")}</h3>
+              <button className="icon-btn" onClick={() => setShowNewFileDialog(true)} title="New File">
+                <Plus size={16} />
+              </button>
+              <button className="icon-btn" onClick={() => document.getElementById('file-upload-input')?.click()} title="Upload">
+                <Upload size={16} />
+              </button>
+              <button className="icon-btn" onClick={refresh} title="Refresh">
+                <RefreshCcw size={16} />
+              </button>
+            </div>
             <div className="flex items-center gap-4 text-xs text-slate-400">
               <button className="hover:text-white flex items-center gap-1" onClick={() => handleSort('name')}>
                 Name {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
@@ -1289,18 +1291,27 @@ export default function FileExplorer() {
               {isLoadingFile && !isNewFile ? (
                 <p className="text-sm text-slate-400">Loading content…</p>
               ) : (
-                <Editor
-                  height="400px"
-                  theme="vs-dark"
-                  language={detectLanguage(editorFile)}
-                  value={editorContent}
-                  onChange={(value) => setEditorContent(value ?? "")}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 14,
-                    scrollBeyondLastLine: false
-                  }}
-                />
+                <Suspense fallback={
+                  <div className="flex items-center justify-center h-[400px] bg-slate-900 rounded border border-slate-800">
+                    <div className="text-center">
+                      <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                      <p className="text-sm text-slate-400">Loading editor...</p>
+                    </div>
+                  </div>
+                }>
+                  <Editor
+                    height="400px"
+                    theme="vs-dark"
+                    language={detectLanguage(editorFile)}
+                    value={editorContent}
+                    onChange={(value) => setEditorContent(value ?? "")}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 14,
+                      scrollBeyondLastLine: false
+                    }}
+                  />
+                </Suspense>
               )}
             </div>
           </div>

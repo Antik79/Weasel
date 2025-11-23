@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using WeaselHost.Core.Configuration;
+using WeaselHost.Infrastructure;
 
 namespace WeaselHost;
 
@@ -32,7 +33,7 @@ internal static class Program
         var builder = Host.CreateApplicationBuilder();
         builder.Configuration
             .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-            .AddJsonFile(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Weasel", "config", "appsettings.json"), optional: true, reloadOnChange: true)
+            .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json"), optional: true, reloadOnChange: true)
             .AddEnvironmentVariables();
 
         builder.Services.Configure<WeaselHostOptions>(builder.Configuration.GetSection("WeaselHost"));
@@ -41,6 +42,9 @@ internal static class Program
             logging.AddConsole();
             logging.AddDebug();
         });
+
+        // Add WeaselHost services so they're available in the tray context menu
+        builder.Services.AddWeaselHostServices();
 
         builder.Services.AddSingleton<WebServerManager>();
         builder.Services.AddSingleton<BrowserLauncher>();

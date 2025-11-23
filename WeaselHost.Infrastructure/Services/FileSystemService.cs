@@ -26,7 +26,23 @@ public sealed class FileSystemService : IFileSystemService
         var path = NormalizePath(directoryPath);
         if (!Directory.Exists(path))
         {
-            throw new DirectoryNotFoundException($"Directory '{path}' was not found.");
+            // For relative paths (like .\Screenshots), create the directory if it doesn't exist
+            if (directoryPath.StartsWith(".\\") || directoryPath.StartsWith("./"))
+            {
+                try
+                {
+                    Directory.CreateDirectory(path);
+                }
+                catch
+                {
+                    // If we can't create it, return empty list
+                    return Task.FromResult<IReadOnlyCollection<FileSystemItem>>(Array.Empty<FileSystemItem>());
+                }
+            }
+            else
+            {
+                throw new DirectoryNotFoundException($"Directory '{path}' was not found.");
+            }
         }
 
         var items = Directory.EnumerateFileSystemEntries(path)

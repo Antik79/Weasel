@@ -10,7 +10,7 @@ public sealed class SettingsStore : ISettingsStore
 
     public SettingsStore()
     {
-        _configPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Weasel", "config", "appsettings.json");
+        _configPath = Path.Combine(AppContext.BaseDirectory, "config", "appsettings.json");
     }
 
     public async Task SaveCaptureSettingsAsync(CaptureOptions options, CancellationToken cancellationToken = default)
@@ -19,7 +19,8 @@ public sealed class SettingsStore : ISettingsStore
         if (File.Exists(_configPath))
         {
             await using var stream = File.OpenRead(_configPath);
-            root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) ?? new JsonObject();
+            var jsonDocOptions = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+            root = await JsonNode.ParseAsync(stream, nodeOptions: null, jsonDocOptions, cancellationToken) ?? new JsonObject();
         }
         else
         {
@@ -40,8 +41,8 @@ public sealed class SettingsStore : ISettingsStore
         Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
         await File.WriteAllTextAsync(_configPath, json, cancellationToken);
         // Force flush by writing again and waiting longer
-        await File.WriteAllTextAsync(_configPath, json, cancellationToken);
-        await Task.Delay(500, cancellationToken); // Give more time for file system and config reload
+        await File.WriteAllTextAsync(_configPath, json, CancellationToken.None);
+        await Task.Delay(500, CancellationToken.None); // Give more time for file system and config reload
     }
 
     public async Task SaveSecuritySettingsAsync(bool requireAuthentication, string? password, CancellationToken cancellationToken = default)
@@ -50,7 +51,8 @@ public sealed class SettingsStore : ISettingsStore
         if (File.Exists(_configPath))
         {
             await using var stream = File.OpenRead(_configPath);
-            root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) ?? new JsonObject();
+            var jsonDocOptions = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+            root = await JsonNode.ParseAsync(stream, nodeOptions: null, jsonDocOptions, cancellationToken) ?? new JsonObject();
         }
         else
         {
@@ -71,6 +73,9 @@ public sealed class SettingsStore : ISettingsStore
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
         await File.WriteAllTextAsync(_configPath, json, cancellationToken);
+        // Force flush by writing again and waiting longer
+        await File.WriteAllTextAsync(_configPath, json, CancellationToken.None);
+        await Task.Delay(500, CancellationToken.None); // Give more time for file system and config reload
     }
 
     public async Task SaveDiskMonitoringSettingsAsync(DiskMonitoringOptions options, CancellationToken cancellationToken = default)
@@ -79,7 +84,8 @@ public sealed class SettingsStore : ISettingsStore
         if (File.Exists(_configPath))
         {
             await using var stream = File.OpenRead(_configPath);
-            root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) ?? new JsonObject();
+            var jsonDocOptions = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+            root = await JsonNode.ParseAsync(stream, nodeOptions: null, jsonDocOptions, cancellationToken) ?? new JsonObject();
         }
         else
         {
@@ -100,6 +106,9 @@ public sealed class SettingsStore : ISettingsStore
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
         await File.WriteAllTextAsync(_configPath, json, cancellationToken);
+        // Force flush by writing again and waiting longer
+        await File.WriteAllTextAsync(_configPath, json, CancellationToken.None);
+        await Task.Delay(500, CancellationToken.None); // Give more time for file system and config reload
     }
 
     public async Task SaveSmtpSettingsAsync(SmtpOptions options, CancellationToken cancellationToken = default)
@@ -108,7 +117,8 @@ public sealed class SettingsStore : ISettingsStore
         if (File.Exists(_configPath))
         {
             await using var stream = File.OpenRead(_configPath);
-            root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) ?? new JsonObject();
+            var jsonDocOptions = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+            root = await JsonNode.ParseAsync(stream, nodeOptions: null, jsonDocOptions, cancellationToken) ?? new JsonObject();
         }
         else
         {
@@ -131,9 +141,9 @@ public sealed class SettingsStore : ISettingsStore
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
         await File.WriteAllTextAsync(_configPath, json, cancellationToken);
-        
-        // Ensure file is fully written and flushed to disk
-        await Task.Delay(100, cancellationToken);
+        // Force flush by writing again and waiting longer
+        await File.WriteAllTextAsync(_configPath, json, CancellationToken.None);
+        await Task.Delay(500, CancellationToken.None); // Give more time for file system and config reload
     }
 
     public async Task SaveApplicationMonitorSettingsAsync(ApplicationMonitorOptions options, CancellationToken cancellationToken = default)
@@ -142,7 +152,8 @@ public sealed class SettingsStore : ISettingsStore
         if (File.Exists(_configPath))
         {
             await using var stream = File.OpenRead(_configPath);
-            root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) ?? new JsonObject();
+            var jsonDocOptions = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+            root = await JsonNode.ParseAsync(stream, nodeOptions: null, jsonDocOptions, cancellationToken) ?? new JsonObject();
         }
         else
         {
@@ -162,7 +173,9 @@ public sealed class SettingsStore : ISettingsStore
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
         await File.WriteAllTextAsync(_configPath, json, cancellationToken);
-        await Task.Delay(100, cancellationToken); // Ensure file is flushed before config reload
+        // Force flush by writing again and waiting longer
+        await File.WriteAllTextAsync(_configPath, json, CancellationToken.None);
+        await Task.Delay(500, CancellationToken.None); // Give more time for file system and config reload
     }
 
     public async Task SaveLoggingSettingsAsync(LoggingOptions options, CancellationToken cancellationToken = default)
@@ -171,7 +184,8 @@ public sealed class SettingsStore : ISettingsStore
         if (File.Exists(_configPath))
         {
             await using var stream = File.OpenRead(_configPath);
-            root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) ?? new JsonObject();
+            var jsonDocOptions = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+            root = await JsonNode.ParseAsync(stream, nodeOptions: null, jsonDocOptions, cancellationToken) ?? new JsonObject();
         }
         else
         {
@@ -205,7 +219,9 @@ public sealed class SettingsStore : ISettingsStore
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
         await File.WriteAllTextAsync(_configPath, json, cancellationToken);
-        await Task.Delay(100, cancellationToken); // Ensure file is flushed before config reload
+        // Force flush by writing again and waiting longer
+        await File.WriteAllTextAsync(_configPath, json, CancellationToken.None);
+        await Task.Delay(500, CancellationToken.None); // Give more time for file system and config reload
     }
 
     public async Task SaveVncSettingsAsync(VncOptions options, CancellationToken cancellationToken = default)
@@ -214,7 +230,8 @@ public sealed class SettingsStore : ISettingsStore
         if (File.Exists(_configPath))
         {
             await using var stream = File.OpenRead(_configPath);
-            root = await JsonNode.ParseAsync(stream, cancellationToken: cancellationToken) ?? new JsonObject();
+            var jsonDocOptions = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+            root = await JsonNode.ParseAsync(stream, nodeOptions: null, jsonDocOptions, cancellationToken) ?? new JsonObject();
         }
         else
         {
@@ -239,7 +256,9 @@ public sealed class SettingsStore : ISettingsStore
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
         Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
         await File.WriteAllTextAsync(_configPath, json, cancellationToken);
-        await Task.Delay(100, cancellationToken); // Ensure file is flushed before config reload
+        // Force flush by writing again and waiting longer
+        await File.WriteAllTextAsync(_configPath, json, CancellationToken.None);
+        await Task.Delay(500, CancellationToken.None); // Give more time for file system and config reload
     }
 }
 

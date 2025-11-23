@@ -238,3 +238,18 @@ export interface VncStatus {
   allowRemote: boolean;
 }
 
+export interface TerminalSession {
+  id: string;
+  processId: number;
+  shellType: "cmd" | "powershell";
+}
+
+export interface CreateTerminalRequest {
+  shellType?: "cmd" | "powershell";
+}
+
+export interface ResizeTerminalRequest {
+  rows: number;
+  cols: number;
+}
+

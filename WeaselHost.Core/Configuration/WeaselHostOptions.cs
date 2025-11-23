@@ -61,7 +61,7 @@ public class SecurityOptions
 public class CaptureOptions
 {
     public string Folder { get; set; } =
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Weasel", "Screenshots");
+        Path.Combine(AppContext.BaseDirectory, "Screenshots");
 
     public string FileNamePattern { get; set; } = "yyyyMMdd_HHmmss";
     public bool EnableIntervalCapture { get; set; }
@@ -70,7 +70,7 @@ public class CaptureOptions
 
 public class LoggingOptions
 {
-    public string Folder { get; set; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Weasel", "Logs");
+    public string Folder { get; set; } = Path.Combine(AppContext.BaseDirectory, "Logs");
 
     public int RetentionDays { get; set; } = 14;
 

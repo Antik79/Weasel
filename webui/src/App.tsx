@@ -1,18 +1,24 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, Suspense, lazy } from "react";
 import useSWR from "swr";
-import { GaugeCircle, FolderTree, Package, Settings as SettingsIcon, Wrench } from "lucide-react";
+import { GaugeCircle, FolderTree, Package, Settings as SettingsIcon, Wrench, FileText } from "lucide-react";
 import logo from "./assets/weasel-logo.png";
-import FileExplorer from "./sections/FileExplorer";
-import PackageManager from "./sections/PackageManager";
 import SystemDashboard from "./sections/SystemDashboard";
 import PowerControls from "./sections/PowerControls";
-import Settings from "./sections/Settings";
-import Tools from "./sections/Tools";
 import Login, { getAuthToken, clearAuthToken } from "./components/Login";
-import VncViewerPage from "./pages/VncViewer";
 import { api, getSystemVersion } from "./api/client";
 import { SystemStatus } from "./types";
 import ToastContainer, { useToast } from "./components/Toast";
+// Import i18n directly to ensure it's in the main bundle (it uses React hooks)
+import "./i18n/i18n";
+
+// Lazy load section components
+const FileExplorer = lazy(() => import("./sections/FileExplorer"));
+const PackageManager = lazy(() => import("./sections/PackageManager"));
+const Settings = lazy(() => import("./sections/Settings"));
+const Tools = lazy(() => import("./sections/Tools"));
+const Logs = lazy(() => import("./sections/Logs"));
+const VncViewerPage = lazy(() => import("./pages/VncViewer"));
+const TerminalPopupPage = lazy(() => import("./pages/TerminalPopup"));
 
 // Global toast context
 let globalToast: ((message: string, type?: "success" | "error" | "info" | "warning", duration?: number) => void) | null = null;
@@ -23,52 +29,108 @@ export function showToast(message: string, type: "success" | "error" | "info" | 
   }
 }
 
-type Tab = "files" | "packages" | "system" | "tools" | "settings";
+type Tab = "files" | "packages" | "system" | "tools" | "logs" | "settings";
 
-const tabOrder: Tab[] = ["system", "files", "packages", "tools", "settings"];
+const tabOrder: Tab[] = ["system", "files", "packages", "tools", "logs", "settings"];
+
+// Loading fallback component
+const SectionLoadingFallback = () => (
+  <div className="flex items-center justify-center h-64">
+    <div className="text-center">
+      <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+      <p className="text-sm text-slate-400">Loading...</p>
+    </div>
+  </div>
+);
 
 const tabConfig: Record<
   Tab,
-  { label: string; icon: React.ReactNode; component: JSX.Element }
+  { label: string; icon: React.ReactNode; component: React.ComponentType }
 > = {
   system: {
     label: "System",
     icon: <GaugeCircle size={16} />,
-    component: <SystemDashboard />
+    component: SystemDashboard
   },
   files: {
     label: "Files",
     icon: <FolderTree size={16} />,
-    component: <FileExplorer />
+    component: FileExplorer
   },
   packages: {
     label: "Packages",
     icon: <Package size={16} />,
-    component: <PackageManager />
+    component: PackageManager
   },
   tools: {
     label: "Tools",
     icon: <Wrench size={16} />,
-    component: <Tools />
+    component: Tools
+  },
+  logs: {
+    label: "Logs",
+    icon: <FileText size={16} />,
+    component: Logs
   },
   settings: {
     label: "Settings",
     icon: <SettingsIcon size={16} />,
-    component: <Settings />
+    component: Settings
   }
 };
 
 export default function App() {
   // Check if we're on the VNC viewer page
   const isVncViewer = window.location.pathname === "/vnc-viewer" || window.location.pathname.endsWith("/vnc-viewer");
-  
+
   if (isVncViewer) {
-    return <VncViewerPage />;
+    return (
+      <Suspense fallback={
+        <div className="w-screen h-screen bg-black flex items-center justify-center text-white">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+            <p>Loading VNC viewer...</p>
+          </div>
+        </div>
+      }>
+        <VncViewerPage />
+      </Suspense>
+    );
+  }
+
+  // Check if we're on the Terminal popup page
+  const isTerminalPopup = window.location.pathname === "/terminal-popup" || window.location.pathname.endsWith("/terminal-popup");
+
+  if (isTerminalPopup) {
+    return (
+      <Suspense fallback={
+        <div className="w-screen h-screen bg-slate-950 flex items-center justify-center text-white">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+            <p>Loading terminal...</p>
+          </div>
+        </div>
+      }>
+        <TerminalPopupPage />
+      </Suspense>
+    );
   }
 
   const [tab, setTab] = useState<Tab>("system");
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
-  const content = useMemo(() => tabConfig[tab].component, [tab]);
+  const ActiveComponent = tabConfig[tab].component;
+  const content = useMemo(() => {
+    // SystemDashboard is not lazy-loaded, render it directly
+    if (tab === "system") {
+      return <SystemDashboard />;
+    }
+    // Other components are lazy-loaded, wrap in Suspense
+    return (
+      <Suspense fallback={<SectionLoadingFallback />}>
+        <ActiveComponent />
+      </Suspense>
+    );
+  }, [tab, ActiveComponent]);
   const { toasts, showToast: showToastInternal, dismissToast } = useToast();
 
   useEffect(() => {
@@ -95,37 +157,65 @@ export default function App() {
     { revalidateOnFocus: false }
   );
 
+  // Update browser title with hostname
+  useEffect(() => {
+    if (systemStatus?.hostname) {
+      document.title = `Weasel @${systemStatus.hostname}`;
+    }
+  }, [systemStatus?.hostname]);
+
   useEffect(() => {
     // Check if authentication is required and if we have a token
     const checkAuth = async () => {
       const token = getAuthToken();
-      if (!token) {
-        // Try to check if auth is required by making a request
-        try {
-          await api("/api/system/status");
+      
+      // Make a test request to check if auth is required
+      // We'll check the response status directly
+      try {
+        const csrfToken = localStorage.getItem("weasel.csrf") || "check";
+        const response = await fetch("/api/system/status", {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Weasel-Csrf": csrfToken,
+            ...(token ? { "X-Weasel-Token": token } : {})
+          }
+        });
+
+        if (response.status === 401) {
+          // Authentication is required but we don't have a valid token
+          if (token) {
+            clearAuthToken(); // Clear invalid token
+          }
+          setAuthenticated(false);
+          return;
+        }
+        
+        if (response.ok) {
+          // Request succeeded - either auth not required or we have valid token
           setAuthenticated(true);
-        } catch (err: any) {
-          console.error("Auth check error:", err);
-          if (err.message?.includes("Authentication required") || err.message?.includes("401")) {
+        } else {
+          // Other error - try to parse response to see if it's an auth error
+          const text = await response.text();
+          if (text.includes("Authentication required") || response.status === 401) {
+            if (token) {
+              clearAuthToken();
+            }
             setAuthenticated(false);
           } else {
-            // Auth not required or other error - still show UI
+            // Other error - assume auth not required for now
             setAuthenticated(true);
           }
         }
-      } else {
-        // We have a token, verify it works
-        try {
-          await api("/api/system/status");
+      } catch (err: any) {
+        console.error("Auth check error:", err);
+        // On network error, if we have a token, assume we're authenticated
+        // Otherwise, show login screen
+        if (token) {
           setAuthenticated(true);
-        } catch (err: any) {
-          console.error("Token verification error:", err);
-          if (err.message?.includes("Authentication required") || err.message?.includes("401")) {
-            clearAuthToken();
-            setAuthenticated(false);
-          } else {
-            setAuthenticated(true);
-          }
+        } else {
+          // Network error - assume auth not required (could be server down)
+          setAuthenticated(true);
         }
       }
     };
@@ -165,23 +255,11 @@ export default function App() {
           />
           <div>
             <p className="text-slate-400 uppercase tracking-[0.3em] text-xs">
-              Weasel
+              Weasel {versionInfo && <span className="text-slate-500">v{versionInfo.version}</span>}
             </p>
             <h1 className="text-3xl font-semibold text-white">
-              Remote Device Console
+              {systemStatus ? systemStatus.hostname : "Connecting..."}
             </h1>
-            <p className="text-sm text-slate-400 mt-1 font-mono">
-              {systemStatus ? (
-                <>@{systemStatus.hostname} ({systemStatus.ipAddress})</>
-              ) : (
-                "Connecting..."
-              )}
-            </p>
-            {versionInfo && (
-              <p className="text-xs text-slate-500 mt-0.5">
-                v{versionInfo.version}
-              </p>
-            )}
           </div>
         </div>
       </header>

@@ -74,15 +74,59 @@ jobs:
       run: |
         New-Item -ItemType Directory -Force -Path artifacts
 
+    - name: Verify publish output
+      shell: pwsh
+      run: |
+        Write-Host "=== Published files ==="
+        Get-ChildItem -Path "publish/win-x64" -Recurse | ForEach-Object { Write-Host $_.FullName }
+
+        # Verify critical folders exist
+        $wwwrootExists = Test-Path "publish/win-x64/wwwroot"
+        $configExists = Test-Path "publish/win-x64/config"
+        $resourcesExists = Test-Path "publish/win-x64/Resources"
+
+        Write-Host "wwwroot exists: $wwwrootExists"
+        Write-Host "config exists: $configExists"
+        Write-Host "Resources exists: $resourcesExists"
+
     - name: Create portable ZIP
       shell: pwsh
       run: |
         $zipName = "Weasel-$env:VERSION-portable.zip"
         $publishDir = "publish/win-x64"
-        
+        $portableDir = "portable/Weasel-$env:VERSION"
+
         # Create a clean directory structure
-        New-Item -ItemType Directory -Force -Path "portable/Weasel-$env:VERSION"
-        Copy-Item -Path "$publishDir/*" -Destination "portable/Weasel-$env:VERSION" -Recurse -Force
+        New-Item -ItemType Directory -Force -Path $portableDir
+        Copy-Item -Path "$publishDir/*" -Destination $portableDir -Recurse -Force
+
+        # Ensure wwwroot is present (frontend assets)
+        if (-not (Test-Path "$portableDir/wwwroot")) {
+          Write-Host "WARNING: wwwroot not found in publish output, copying from source..."
+          if (Test-Path "WeaselHost.Web/wwwroot") {
+            Copy-Item -Path "WeaselHost.Web/wwwroot" -Destination $portableDir -Recurse -Force
+            Write-Host "Copied wwwroot from WeaselHost.Web"
+          }
+        }
+
+        # Ensure config folder is present
+        if (-not (Test-Path "$portableDir/config")) {
+          Write-Host "WARNING: config not found in publish output, copying from source..."
+          if (Test-Path "config") {
+            Copy-Item -Path "config" -Destination $portableDir -Recurse -Force
+            Write-Host "Copied config from source"
+          }
+        }
+
+        # Ensure Resources folder is present (tray icon)
+        if (-not (Test-Path "$portableDir/Resources")) {
+          Write-Host "WARNING: Resources not found in publish output, copying from source..."
+          New-Item -ItemType Directory -Force -Path "$portableDir/Resources"
+          if (Test-Path "assets/logo.ico") {
+            Copy-Item -Path "assets/logo.ico" -Destination "$portableDir/Resources/weasel.ico" -Force
+            Write-Host "Copied Resources/weasel.ico from assets"
+          }
+        }
         
         # Create README for portable version
         $readme = @"
@@ -94,13 +138,15 @@ jobs:
 2. Run `Weasel.exe`
 3. Access the web console at http://localhost:7780
 
-## Configuration
+## Portable Mode
 
-Configuration files are stored in:
-`$env:APPDATA\Weasel\config\appsettings.json`
+This version stores all data in the application directory:
 
-Logs are stored in:
-`$env:APPDATA\Weasel\Logs\`
+- Configuration: `.\config\appsettings.json`
+- Logs: `.\Logs\`
+- Screenshots: `.\Screenshots\`
+
+This makes Weasel fully portable - just copy the entire folder to another location or USB drive.
 
 ## Startup Options
 

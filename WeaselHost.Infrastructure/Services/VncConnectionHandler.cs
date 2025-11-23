@@ -1,9 +1,75 @@
 using System.Net.Sockets;
 using System.Text;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 
 namespace WeaselHost.Infrastructure.Services;
+
+// Windows API interop for input injection
+internal static class NativeMethods
+{
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+    [DllImport("user32.dll")]
+    internal static extern bool SetCursorPos(int X, int Y);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct INPUT
+    {
+        public uint type;
+        public InputUnion u;
+    }
+
+    [StructLayout(LayoutKind.Explicit)]
+    internal struct InputUnion
+    {
+        [FieldOffset(0)]
+        public MOUSEINPUT mi;
+        [FieldOffset(0)]
+        public KEYBDINPUT ki;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    internal const uint INPUT_MOUSE = 0;
+    internal const uint INPUT_KEYBOARD = 1;
+
+    internal const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+    internal const uint KEYEVENTF_KEYUP = 0x0002;
+    internal const uint KEYEVENTF_UNICODE = 0x0004;
+    internal const uint KEYEVENTF_SCANCODE = 0x0008;
+
+    internal const uint MOUSEEVENTF_MOVE = 0x0001;
+    internal const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+    internal const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    internal const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
+    internal const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+    internal const uint MOUSEEVENTF_MIDDLEDOWN = 0x0020;
+    internal const uint MOUSEEVENTF_MIDDLEUP = 0x0040;
+    internal const uint MOUSEEVENTF_WHEEL = 0x0800;
+    internal const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
+}
 
 public class VncConnectionHandler : IDisposable
 {
@@ -13,6 +79,7 @@ public class VncConnectionHandler : IDisposable
     private readonly ILogger<VncService>? _logger;
     private readonly ScreenFramebufferSource _framebufferSource;
     private bool _disposed;
+    private byte _lastButtonMask = 0;
     private PixelFormat _clientPixelFormat = new PixelFormat
     {
         BitsPerPixel = 32,
@@ -586,14 +653,166 @@ public class VncConnectionHandler : IDisposable
     {
         var buffer = new byte[7];
         await _stream.ReadAsync(buffer, 0, 7, cancellationToken);
-        // Handle keyboard input (simplified - implement actual key injection)
+
+        // VNC KeyEvent format: [padding:1][down-flag:1][padding:2][key:4]
+        var downFlag = buffer[1];
+        var keysym = BitConverter.ToUInt32(new byte[] { buffer[7], buffer[6], buffer[5], buffer[4] }, 0);
+
+        // Convert VNC keysym to Windows virtual key code
+        var vk = ConvertKeysymToVirtualKey(keysym);
+        if (vk == 0)
+        {
+            _logger?.LogDebug("Unknown keysym: 0x{Keysym:X8}", keysym);
+            return;
+        }
+
+        // Inject keyboard event
+        var input = new NativeMethods.INPUT
+        {
+            type = NativeMethods.INPUT_KEYBOARD,
+            u = new NativeMethods.InputUnion
+            {
+                ki = new NativeMethods.KEYBDINPUT
+                {
+                    wVk = vk,
+                    wScan = 0,
+                    dwFlags = downFlag == 0 ? NativeMethods.KEYEVENTF_KEYUP : 0,
+                    time = 0,
+                    dwExtraInfo = IntPtr.Zero
+                }
+            }
+        };
+
+        NativeMethods.SendInput(1, new[] { input }, Marshal.SizeOf(typeof(NativeMethods.INPUT)));
+        _logger?.LogDebug("Key event: keysym=0x{Keysym:X8}, vk=0x{Vk:X2}, down={Down}", keysym, vk, downFlag);
     }
 
     private async Task ReadPointerEvent(CancellationToken cancellationToken)
     {
         var buffer = new byte[5];
         await _stream.ReadAsync(buffer, 0, 5, cancellationToken);
-        // Handle mouse input (simplified - implement actual mouse injection)
+
+        // VNC PointerEvent format: [button-mask:1][x:2][y:2]
+        var buttonMask = buffer[0];
+        var x = (ushort)((buffer[1] << 8) | buffer[2]);
+        var y = (ushort)((buffer[3] << 8) | buffer[4]);
+
+        // Move cursor to absolute position
+        NativeMethods.SetCursorPos(x, y);
+
+        // Handle button events
+        var inputs = new List<NativeMethods.INPUT>();
+
+        // Left button (bit 0)
+        if ((buttonMask & 0x01) != (_lastButtonMask & 0x01))
+        {
+            inputs.Add(new NativeMethods.INPUT
+            {
+                type = NativeMethods.INPUT_MOUSE,
+                u = new NativeMethods.InputUnion
+                {
+                    mi = new NativeMethods.MOUSEINPUT
+                    {
+                        dx = 0,
+                        dy = 0,
+                        mouseData = 0,
+                        dwFlags = (buttonMask & 0x01) != 0 ? NativeMethods.MOUSEEVENTF_LEFTDOWN : NativeMethods.MOUSEEVENTF_LEFTUP,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            });
+        }
+
+        // Middle button (bit 1)
+        if ((buttonMask & 0x02) != (_lastButtonMask & 0x02))
+        {
+            inputs.Add(new NativeMethods.INPUT
+            {
+                type = NativeMethods.INPUT_MOUSE,
+                u = new NativeMethods.InputUnion
+                {
+                    mi = new NativeMethods.MOUSEINPUT
+                    {
+                        dx = 0,
+                        dy = 0,
+                        mouseData = 0,
+                        dwFlags = (buttonMask & 0x02) != 0 ? NativeMethods.MOUSEEVENTF_MIDDLEDOWN : NativeMethods.MOUSEEVENTF_MIDDLEUP,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            });
+        }
+
+        // Right button (bit 2)
+        if ((buttonMask & 0x04) != (_lastButtonMask & 0x04))
+        {
+            inputs.Add(new NativeMethods.INPUT
+            {
+                type = NativeMethods.INPUT_MOUSE,
+                u = new NativeMethods.InputUnion
+                {
+                    mi = new NativeMethods.MOUSEINPUT
+                    {
+                        dx = 0,
+                        dy = 0,
+                        mouseData = 0,
+                        dwFlags = (buttonMask & 0x04) != 0 ? NativeMethods.MOUSEEVENTF_RIGHTDOWN : NativeMethods.MOUSEEVENTF_RIGHTUP,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            });
+        }
+
+        // Mouse wheel (bits 3-4)
+        if ((buttonMask & 0x08) != 0) // Scroll up
+        {
+            inputs.Add(new NativeMethods.INPUT
+            {
+                type = NativeMethods.INPUT_MOUSE,
+                u = new NativeMethods.InputUnion
+                {
+                    mi = new NativeMethods.MOUSEINPUT
+                    {
+                        dx = 0,
+                        dy = 0,
+                        mouseData = 120, // Positive = scroll up
+                        dwFlags = NativeMethods.MOUSEEVENTF_WHEEL,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            });
+        }
+        else if ((buttonMask & 0x10) != 0) // Scroll down
+        {
+            inputs.Add(new NativeMethods.INPUT
+            {
+                type = NativeMethods.INPUT_MOUSE,
+                u = new NativeMethods.InputUnion
+                {
+                    mi = new NativeMethods.MOUSEINPUT
+                    {
+                        dx = 0,
+                        dy = 0,
+                        mouseData = unchecked((uint)-120), // Negative = scroll down
+                        dwFlags = NativeMethods.MOUSEEVENTF_WHEEL,
+                        time = 0,
+                        dwExtraInfo = IntPtr.Zero
+                    }
+                }
+            });
+        }
+
+        if (inputs.Count > 0)
+        {
+            NativeMethods.SendInput((uint)inputs.Count, inputs.ToArray(), Marshal.SizeOf(typeof(NativeMethods.INPUT)));
+        }
+
+        _lastButtonMask = buttonMask;
+        _logger?.LogDebug("Pointer event: x={X}, y={Y}, buttons=0x{Buttons:X2}", x, y, buttonMask);
     }
 
     private async Task ReadClientCutText(CancellationToken cancellationToken)
@@ -606,6 +825,93 @@ public class VncConnectionHandler : IDisposable
             var textBuffer = new byte[length];
             await _stream.ReadAsync(textBuffer, 0, length, cancellationToken);
         }
+    }
+
+    private static ushort ConvertKeysymToVirtualKey(uint keysym)
+    {
+        // Map VNC keysyms to Windows Virtual Key codes
+        // Latin-1 characters (0x0020 - 0x007E) and some extended (0x00A0 - 0x00FF)
+        if (keysym >= 0x20 && keysym <= 0x7E)
+        {
+            // Direct ASCII mapping for printable characters
+            return (ushort)keysym;
+        }
+
+        // Special keys mapping
+        return keysym switch
+        {
+            // Function keys
+            0xFFBE => 0x70, // F1
+            0xFFBF => 0x71, // F2
+            0xFFC0 => 0x72, // F3
+            0xFFC1 => 0x73, // F4
+            0xFFC2 => 0x74, // F5
+            0xFFC3 => 0x75, // F6
+            0xFFC4 => 0x76, // F7
+            0xFFC5 => 0x77, // F8
+            0xFFC6 => 0x78, // F9
+            0xFFC7 => 0x79, // F10
+            0xFFC8 => 0x7A, // F11
+            0xFFC9 => 0x7B, // F12
+
+            // Cursor control
+            0xFF50 => 0x24, // Home
+            0xFF51 => 0x25, // Left arrow
+            0xFF52 => 0x26, // Up arrow
+            0xFF53 => 0x27, // Right arrow
+            0xFF54 => 0x28, // Down arrow
+            0xFF55 => 0x21, // Page Up
+            0xFF56 => 0x22, // Page Down
+            0xFF57 => 0x23, // End
+
+            // Editing
+            0xFF63 => 0x2D, // Insert
+            0xFFFF => 0x2E, // Delete
+            0xFF08 => 0x08, // Backspace
+            0xFF09 => 0x09, // Tab
+            0xFF0D => 0x0D, // Return/Enter
+            0xFF1B => 0x1B, // Escape
+
+            // Modifiers
+            0xFFE1 => 0xA0, // Left Shift
+            0xFFE2 => 0xA1, // Right Shift
+            0xFFE3 => 0xA2, // Left Control
+            0xFFE4 => 0xA3, // Right Control
+            0xFFE5 => 0x12, // Caps Lock
+            0xFFE7 => 0x5B, // Left Windows/Meta
+            0xFFE8 => 0x5C, // Right Windows/Meta
+            0xFFE9 => 0xA4, // Left Alt
+            0xFFEA => 0xA5, // Right Alt
+            0xFF20 => 0x10, // Shift (generic)
+
+            // Numeric keypad
+            0xFF9C => 0x0D, // Keypad Enter
+            0xFFAA => 0x6A, // Keypad *
+            0xFFAB => 0x6B, // Keypad +
+            0xFFAD => 0x6D, // Keypad -
+            0xFFAE => 0x6E, // Keypad .
+            0xFFAF => 0x6F, // Keypad /
+            0xFFB0 => 0x60, // Keypad 0
+            0xFFB1 => 0x61, // Keypad 1
+            0xFFB2 => 0x62, // Keypad 2
+            0xFFB3 => 0x63, // Keypad 3
+            0xFFB4 => 0x64, // Keypad 4
+            0xFFB5 => 0x65, // Keypad 5
+            0xFFB6 => 0x66, // Keypad 6
+            0xFFB7 => 0x67, // Keypad 7
+            0xFFB8 => 0x68, // Keypad 8
+            0xFFB9 => 0x69, // Keypad 9
+
+            // System keys
+            0xFF61 => 0x2C, // Print Screen
+            0xFF14 => 0x91, // Scroll Lock
+            0xFF13 => 0x13, // Pause
+
+            // Space
+            0x20 => 0x20,
+
+            _ => 0 // Unknown key
+        };
     }
 
     private static byte ReverseBits(byte value)

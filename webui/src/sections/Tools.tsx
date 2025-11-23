@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, Suspense, lazy } from "react";
 import useSWR from "swr";
-import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square, Monitor as MonitorIcon, Eye as EyeIcon, Shield, ChevronDown, ChevronUp, Edit2, ArrowUp, ArrowDown, Search as SearchIcon, Archive } from "lucide-react";
-import { api, download } from "../api/client";
-import { FileSystemItem, CaptureSettings, LogsResponse, LogFileInfo, DiskMonitoringConfig, DiskMonitoringStatus, DriveAlertStatus, DriveMonitorConfig, FolderMonitorOptions, ProcessInfo, ApplicationMonitorConfig, MonitoredApplication, VncConfig, VncStatus } from "../types";
+import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square, Monitor as MonitorIcon, Eye as EyeIcon, Shield, ChevronDown, ChevronUp, Edit2, ArrowUp, ArrowDown, Search as SearchIcon, Archive, Terminal, X, ExternalLink } from "lucide-react";
+import { api, download, createTerminal, closeTerminal } from "../api/client";
+
+// Lazy load TerminalViewer - only loads when Terminal tab is active
+const TerminalViewer = lazy(() => import("../components/TerminalViewer"));
+import { FileSystemItem, CaptureSettings, DiskMonitoringConfig, DiskMonitoringStatus, DriveAlertStatus, DriveMonitorConfig, FolderMonitorOptions, ProcessInfo, ApplicationMonitorConfig, MonitoredApplication, VncConfig, VncStatus, TerminalSession, LogsResponse, LogFileInfo } from "../types";
 import { formatBytes, formatDate, formatPath } from "../utils/format";
 import FilePicker from "../components/FilePicker";
 import FolderPicker from "../components/FolderPicker";
@@ -12,18 +15,11 @@ import { useTheme, type Theme } from "../theme";
 import { showToast } from "../App";
 import ConfirmDialog from "../components/ConfirmDialog";
 
-type ToolsTab = "application-monitor" | "storage-monitor" | "vnc" | "screenshots" | "logs";
+type ToolsTab = "application-monitor" | "storage-monitor" | "terminal" | "vnc" | "screenshots";
 
 type TranslateFn = (key: string, replacements?: Record<string, string | number>) => string;
 
 const captureFetcher = () => api<CaptureSettings>("/api/settings/capture");
-const logsFetcher = (subfolder?: string) => {
-  const url = new URL("/api/logs", window.location.origin);
-  if (subfolder) {
-    url.searchParams.set("subfolder", subfolder);
-  }
-  return api<LogsResponse>(url.toString());
-};
 
 const buildRawUrl = (path: string) => {
   const url = new URL("/api/fs/raw", window.location.origin);
@@ -31,20 +27,11 @@ const buildRawUrl = (path: string) => {
   return url.toString();
 };
 
-const openLogDownload = (fileName: string, subfolder?: string | null) => {
-  const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
-  if (subfolder) {
-    url.searchParams.set("subfolder", subfolder);
-  }
-  window.open(url.toString(), "_blank");
-};
-
 export default function Tools() {
   const { t } = useTranslation();
   const theme = useTheme();
   const [tab, setTab] = useState<ToolsTab>("screenshots");
   const [preview, setPreview] = useState<{ path: string; url: string } | null>(null);
-  const [selectedLog, setSelectedLog] = useState<string | null>(null);
   const [isSavingCapture, setIsSavingCapture] = useState(false);
   const [selectedScreenshots, setSelectedScreenshots] = useState<Set<string>>(new Set());
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -93,147 +80,6 @@ export default function Tools() {
     return files.filter((f) => f.name.toLowerCase().endsWith(".png"));
   }, [files]);
 
-  const [selectedLogSubfolder, setSelectedLogSubfolder] = useState<string | null>(null);
-  const [logSortConfig, setLogSortConfig] = useState<{ key: 'name' | 'size' | 'date'; direction: 'asc' | 'desc' }>({ key: 'date', direction: 'desc' });
-  const [logFolderSortConfig, setLogFolderSortConfig] = useState<{ key: 'name' | 'date'; direction: 'asc' | 'desc' }>({ key: 'name', direction: 'asc' });
-  const [logSearchQuery, setLogSearchQuery] = useState("");
-  const [logLeftPanelWidth, setLogLeftPanelWidth] = useState(33);
-  const [isLogResizing, setIsLogResizing] = useState(false);
-  const logContainerRef = useRef<HTMLDivElement>(null);
-  
-  const {
-    data: logsResponse,
-    isLoading: logsLoading,
-    mutate: refreshLogs
-  } = useSWR(["logs", selectedLogSubfolder], () => logsFetcher(selectedLogSubfolder ?? undefined), { refreshInterval: 15000 });
-
-  const logFiles = logsResponse?.files ?? [];
-  const logFolder = logsResponse?.folder ?? "";
-  const logSubfolders = logsResponse?.subfolders ?? [];
-
-  const { data: logContent, isLoading: logContentLoading } = useSWR(
-    selectedLog ? ["log", selectedLog, selectedLogSubfolder] : null,
-    ([, fileName, subfolder]: [string, string, string | null]) => {
-      const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
-      if (subfolder) {
-        url.searchParams.set("subfolder", subfolder);
-      }
-      return api<string>(url.toString());
-    },
-    { 
-      revalidateOnFocus: true,
-      refreshInterval: 2000 // Auto-refresh every 2 seconds for tailing
-    }
-  );
-
-  useEffect(() => {
-    if (!selectedLog && logFiles.length > 0) {
-      setSelectedLog(logFiles[0].name);
-    }
-  }, [selectedLog, logFiles]);
-
-  // Log resizing logic
-  useEffect(() => {
-    if (!isLogResizing) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!logContainerRef.current) return;
-      const containerRect = logContainerRef.current.getBoundingClientRect();
-      const newWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
-      const clampedWidth = Math.max(20, Math.min(60, newWidth));
-      setLogLeftPanelWidth(clampedWidth);
-      localStorage.setItem('weasel.logs.leftPanelWidth', clampedWidth.toString());
-    };
-
-    const handleMouseUp = () => {
-      setIsLogResizing(false);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isLogResizing]);
-
-  // Load saved panel width
-  useEffect(() => {
-    const saved = localStorage.getItem('weasel.logs.leftPanelWidth');
-    if (saved) {
-      setLogLeftPanelWidth(parseInt(saved));
-    }
-  }, []);
-
-  // Log sorting and filtering
-  const sortedLogFolders = useMemo(() => {
-    const folders = [...logSubfolders];
-    if (selectedLogSubfolder && !selectedLogSubfolder.includes('/Archive')) {
-      // Add Archive folder if not in Archive
-      folders.push(`${selectedLogSubfolder}/Archive`);
-    }
-    return folders.sort((a, b) => {
-      let comparison = 0;
-      switch (logFolderSortConfig.key) {
-        case 'name':
-          comparison = a.localeCompare(b);
-          break;
-        case 'date':
-          // For folders, we can't really sort by date, so just use name
-          comparison = a.localeCompare(b);
-          break;
-      }
-      return logFolderSortConfig.direction === 'asc' ? comparison : -comparison;
-    });
-  }, [logSubfolders, selectedLogSubfolder, logFolderSortConfig]);
-
-  const filteredLogFiles = useMemo(() => {
-    if (!Array.isArray(logFiles)) return [];
-    if (!logSearchQuery) return logFiles;
-    const query = logSearchQuery.toLowerCase();
-    return logFiles.filter((file) => file.name.toLowerCase().includes(query));
-  }, [logFiles, logSearchQuery]);
-
-  const sortedLogFiles = useMemo(() => {
-    return [...filteredLogFiles].sort((a, b) => {
-      let comparison = 0;
-      switch (logSortConfig.key) {
-        case 'name':
-          comparison = a.name.localeCompare(b.name);
-          break;
-        case 'size':
-          comparison = a.sizeBytes - b.sizeBytes;
-          break;
-        case 'date':
-          comparison = new Date(a.lastModified).getTime() - new Date(b.lastModified).getTime();
-          break;
-      }
-      return logSortConfig.direction === 'asc' ? comparison : -comparison;
-    });
-  }, [filteredLogFiles, logSortConfig]);
-
-  const handleLogSort = (key: 'name' | 'size' | 'date') => {
-    setLogSortConfig(current => ({
-      key,
-      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
-    }));
-  };
-
-  const handleLogFolderSort = (key: 'name' | 'date') => {
-    setLogFolderSortConfig(current => ({
-      key,
-      direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
-    }));
-  };
-
-  const startLogResizing = () => {
-    setIsLogResizing(true);
-  };
-  
-  useEffect(() => {
-    // Clear selected log when subfolder changes
-    setSelectedLog(null);
-  }, [selectedLogSubfolder]);
 
   useEffect(() => {
     return () => {
@@ -408,9 +254,9 @@ export default function Tools() {
   const toolsTabs: { key: ToolsTab; label: string; icon: React.ReactNode }[] = [
     { key: "application-monitor", label: t("tools.tabs.appMonitor"), icon: <Monitor size={16} /> },
     { key: "storage-monitor", label: "Storage Monitor", icon: <HardDrive size={16} /> },
+    { key: "terminal", label: "Terminal", icon: <Terminal size={16} /> },
     { key: "vnc", label: "VNC", icon: <MonitorIcon size={16} /> },
-    { key: "screenshots", label: t("tools.tabs.screenshots"), icon: <Camera size={16} /> },
-    { key: "logs", label: t("tools.tabs.logs"), icon: <FileText size={16} /> }
+    { key: "screenshots", label: t("tools.tabs.screenshots"), icon: <Camera size={16} /> }
   ];
 
   return (
@@ -624,203 +470,9 @@ export default function Tools() {
         </div>
       )}
 
-      {tab === "logs" && (
-        <div className="panel space-y-4">
-          {/* Breadcrumbs */}
-          <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded border border-slate-800 overflow-hidden">
-            <span className="text-slate-500 flex-shrink-0">{t("common.path")}:</span>
-            <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
-              <button
-                className="text-sm font-medium text-sky-400 hover:text-sky-300 hover:underline flex-shrink-0"
-                onClick={() => {
-                  setSelectedLogSubfolder(null);
-                  setSelectedLog(null);
-                }}
-                title="Go to root"
-              >
-                Logs
-              </button>
-              {selectedLogSubfolder && selectedLogSubfolder.split('/').filter(Boolean).map((segment, index, arr) => {
-                const pathUpToSegment = arr.slice(0, index + 1).join('/');
-                const isLast = index === arr.length - 1;
-                return (
-                  <div key={index} className="flex items-center gap-1 flex-shrink-0 min-w-0">
-                    <span className="text-slate-500 flex-shrink-0">/</span>
-                    <button
-                      className={`text-sm font-medium truncate max-w-[150px] ${isLast
-                        ? "text-white"
-                        : "text-sky-400 hover:text-sky-300 hover:underline"
-                        }`}
-                      onClick={() => {
-                        if (!isLast) {
-                          setSelectedLogSubfolder(pathUpToSegment);
-                          setSelectedLog(null);
-                        }
-                      }}
-                      disabled={isLast}
-                      title={pathUpToSegment}
-                    >
-                      {segment}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex gap-2 flex-shrink-0">
-              <button className="btn-outline" onClick={() => refreshLogs()}>
-                <RefreshCw size={16} /> {t("common.refresh")}
-              </button>
-            </div>
-          </div>
-
-          {/* Two-panel layout */}
-          <div ref={logContainerRef} className="flex flex-row gap-2" style={{ height: 'calc(100vh - 200px)', minHeight: '600px' }}>
-            {/* Folders Panel (Left) */}
-            <div className="panel flex flex-col overflow-hidden" style={{ width: `${logLeftPanelWidth}%`, minWidth: '250px' }}>
-              <div className="flex items-center justify-between mb-2 flex-shrink-0">
-                <h3 className="panel-title mb-0">Folders</h3>
-                <div className="flex items-center gap-4 text-xs text-slate-400">
-                  <button className="hover:text-white flex items-center gap-1" onClick={() => handleLogFolderSort('name')}>
-                    Name {logFolderSortConfig.key === 'name' && (logFolderSortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
-                  </button>
-                </div>
-              </div>
-              <div className="divide-y divide-slate-800 overflow-y-auto flex-1 pr-2">
-                {logsLoading && <p className="py-4 text-sm text-slate-400">Loading…</p>}
-                {!logsLoading && sortedLogFolders.length === 0 && (
-                  <p className="py-4 text-sm text-slate-400">No folders</p>
-                )}
-                {!logsLoading && sortedLogFolders.map((folder) => {
-                  const isArchive = folder.toLowerCase().includes('archive');
-                  const folderName = folder.split('/').pop() || folder;
-                  return (
-                    <div
-                      key={folder}
-                      className={`item-row hover:bg-slate-800/50 cursor-pointer ${selectedLogSubfolder === folder ? "bg-slate-800/70" : ""
-                        }`}
-                      onClick={() => {
-                        setSelectedLogSubfolder(folder);
-                        setSelectedLog(null);
-                      }}
-                    >
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        {isArchive ? <Archive size={18} className="text-amber-300 flex-shrink-0" /> : <Folder size={18} className="text-amber-300 flex-shrink-0" />}
-                        <div className="min-w-0">
-                          <p className="font-medium truncate">{folderName}</p>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Resizer */}
-            <div
-              className="w-2 cursor-col-resize bg-slate-900 hover:bg-sky-500/50 transition-colors flex items-center justify-center z-10 flex-shrink-0 rounded"
-              onMouseDown={startLogResizing}
-            >
-              <div className="h-8 w-1 bg-slate-600 rounded-full" />
-            </div>
-
-            {/* Files Panel (Right) */}
-            <div className="panel flex-1 flex flex-col overflow-hidden" style={{ minWidth: '400px' }}>
-              <div className="flex items-center justify-between mb-2 flex-shrink-0">
-                <h3 className="panel-title mb-0">Log Files</h3>
-                <div className="flex items-center gap-4 text-xs text-slate-400">
-                  <button className="hover:text-white flex items-center gap-1" onClick={() => handleLogSort('name')}>
-                    Name {logSortConfig.key === 'name' && (logSortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
-                  </button>
-                  <button className="hover:text-white flex items-center gap-1" onClick={() => handleLogSort('size')}>
-                    Size {logSortConfig.key === 'size' && (logSortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
-                  </button>
-                  <button className="hover:text-white flex items-center gap-1" onClick={() => handleLogSort('date')}>
-                    Date {logSortConfig.key === 'date' && (logSortConfig.direction === 'asc' ? <ArrowUp size={12} /> : <ArrowDown size={12} />)}
-                  </button>
-                </div>
-              </div>
-              
-              {/* Search */}
-              <div className="mb-2 flex-shrink-0">
-                <div className="relative">
-                  <input
-                    type="text"
-                    placeholder="Search log files..."
-                    value={logSearchQuery}
-                    onChange={(e) => setLogSearchQuery(e.target.value)}
-                    className="w-full px-3 py-2 pl-9 bg-slate-900/50 border border-slate-800 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent"
-                  />
-                  <SearchIcon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                </div>
-              </div>
-
-              <div className="divide-y divide-slate-800 overflow-y-auto flex-1 pr-2">
-                {logsLoading && <p className="py-4 text-sm text-slate-400">Loading…</p>}
-                {!logsLoading && sortedLogFiles.length === 0 && (
-                  <p className="py-4 text-sm text-slate-400">{logSearchQuery ? "No files match your search" : "No log files"}</p>
-                )}
-                {!logsLoading && sortedLogFiles.map((file) => (
-                  <div
-                    key={file.name}
-                    className={`item-row hover:bg-slate-800/50 cursor-pointer group ${selectedLog === file.name ? "bg-slate-800/70" : ""
-                      }`}
-                    onClick={() => setSelectedLog(file.name)}
-                  >
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <FileText size={18} className="text-blue-300 flex-shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium truncate">{file.name}</p>
-                        <p className="text-xs text-slate-400">
-                          {formatDate(file.lastModified)} • {formatBytes(file.sizeBytes)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button 
-                        className="icon-btn" 
-                        onClick={(e) => { 
-                          e.stopPropagation(); 
-                          openLogDownload(file.name, selectedLogSubfolder); 
-                        }} 
-                        title="Download"
-                      >
-                        <Download size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Log Content Viewer */}
-          {selectedLog && (
-            <div className="bg-slate-950/70 border border-slate-800 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="font-semibold text-white">{selectedLog}</p>
-                <div className="flex gap-2">
-                  <button className="btn-outline" onClick={() => openLogDownload(selectedLog, selectedLogSubfolder)}>
-                    <Download size={16} /> {t("tools.logs.download")}
-                  </button>
-                </div>
-              </div>
-              {logContentLoading && <p className="text-sm text-slate-400">{t("tools.logs.loadingEntry")}</p>}
-              {!logContentLoading && (
-                <pre className="text-xs text-slate-300 whitespace-pre-wrap max-h-[400px] overflow-y-auto font-mono bg-slate-900/50 p-3 rounded border border-slate-800">
-                  {logContent || ""}
-                </pre>
-              )}
-              <div className="mt-2 text-xs text-slate-500 flex items-center gap-2">
-                <RefreshCw size={12} className="animate-spin" />
-                <span>Tailing log (auto-refreshing every 2 seconds)</span>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
       {tab === "storage-monitor" && <DiskMonitoringTab t={t} theme={theme} />}
       {tab === "application-monitor" && <ApplicationMonitorTab t={t} />}
+      {tab === "terminal" && <TerminalTab t={t} />}
       {tab === "vnc" && <RemoteDesktopTab t={t} />}
 
       <ConfirmDialog
@@ -842,6 +494,36 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
   const { data: config, mutate: refreshConfig } = useSWR<DiskMonitoringConfig>("disk-monitoring-config", () => api<DiskMonitoringConfig>("/api/disk-monitoring/config"));
   const { data: status, mutate: refreshStatus } = useSWR<DiskMonitoringStatus>("disk-monitoring-status", () => api<DiskMonitoringStatus>("/api/disk-monitoring/status"), { refreshInterval: 30000 });
   const { data: availableDrives } = useSWR<Array<{ name: string; totalBytes: number; freeBytes: number }>>("available-drives", () => api<Array<{ name: string; totalBytes: number; freeBytes: number }>>("/api/disk-monitoring/drives"));
+
+  // Log tailing - get the most recent log file
+  const { data: logFiles } = useSWR(
+    "disk-monitor-log-files",
+    () => {
+      const url = new URL("/api/logs", window.location.origin);
+      url.searchParams.set("subfolder", "DiskMonitor");
+      return api<LogsResponse>(url.toString());
+    },
+    { refreshInterval: 10000 }
+  );
+
+  const latestLogFile = useMemo(() => {
+    if (!logFiles || !logFiles.files || logFiles.files.length === 0) return null;
+    // Sort by name descending (latest first) and take the first one
+    return logFiles.files.sort((a: LogFileInfo, b: LogFileInfo) => b.name.localeCompare(a.name))[0];
+  }, [logFiles]);
+
+  const { data: logContent, isLoading: logLoading } = useSWR(
+    latestLogFile ? ["disk-monitor-log", latestLogFile.name] : null,
+    ([, fileName]: [string, string]) => {
+      const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
+      url.searchParams.set("subfolder", "DiskMonitor");
+      return api<string>(url.toString());
+    },
+    {
+      refreshInterval: 2000, // Tail the log every 2 seconds
+      revalidateOnFocus: false
+    }
+  );
 
   const [form, setForm] = useState<DiskMonitoringConfig>({
     enabled: false,
@@ -1316,6 +998,25 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
           </div>
         )}
       </div>
+
+      {/* Storage Monitor Log Tailing Section */}
+      <div className="panel space-y-2">
+        <div className="flex items-center justify-between">
+          <h3 className="panel-title mb-0">{t("tools.disk.logTitle", "Storage Monitor Log")}</h3>
+          <div className="text-xs text-slate-400">
+            {logLoading ? "Loading..." : "Tailing log (auto-refreshing every 2 seconds)"}
+          </div>
+        </div>
+        <div className="bg-slate-950 rounded border border-slate-800 p-3 max-h-96 overflow-y-auto">
+          {logLoading && <p className="text-sm text-slate-400">Loading log...</p>}
+          {!logLoading && !logContent && <p className="text-sm text-slate-400">No log content available</p>}
+          {!logLoading && logContent && (
+            <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono">
+              {logContent}
+            </pre>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1341,7 +1042,7 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
   const latestLogFile = useMemo(() => {
     if (!logFiles?.files || logFiles.files.length === 0) return null;
     // Sort by name (which includes date) descending and get the first one
-    return logFiles.files.sort((a, b) => b.name.localeCompare(a.name))[0];
+    return logFiles.files.sort((a: LogFileInfo, b: LogFileInfo) => b.name.localeCompare(a.name))[0];
   }, [logFiles]);
 
   const { data: logContent, isLoading: logLoading } = useSWR(
@@ -1712,13 +1413,164 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
   );
 }
 
+function TerminalTab({ t }: { t: TranslateFn }) {
+  const [terminalSession, setTerminalSession] = useState<TerminalSession | null>(null);
+  const [showShellDialog, setShowShellDialog] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+
+  const createNewTerminal = async (shellType: "cmd" | "powershell") => {
+    setIsCreating(true);
+    setShowShellDialog(false);
+    try {
+      // Close existing terminal if any
+      if (terminalSession) {
+        try {
+          await closeTerminal(terminalSession.id);
+        } catch (error) {
+          // Ignore errors when closing old terminal
+        }
+      }
+      
+      const session = await createTerminal(shellType);
+      setTerminalSession(session);
+      showToast(`Terminal created (${shellType})`, "success");
+    } catch (error) {
+      showToast(`Failed to create terminal: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const closeCurrentTerminal = async () => {
+    if (!terminalSession) return;
+    
+    try {
+      await closeTerminal(terminalSession.id);
+      setTerminalSession(null);
+      showToast("Terminal closed", "success");
+    } catch (error) {
+      showToast(`Failed to close terminal: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="panel space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="panel-title mb-0">Terminal</h3>
+          <div className="flex items-center gap-2">
+            {terminalSession && (
+              <>
+                <button
+                  className="btn-outline"
+                  onClick={async () => {
+                    try {
+                      // Create a new terminal session for the popup
+                      const newSession = await createTerminal(terminalSession.shellType as "cmd" | "powershell");
+                      const url = `/terminal-popup?id=${newSession.id}`;
+                      window.open(url, '_blank', 'width=800,height=600');
+                    } catch (error) {
+                      showToast(`Failed to open popup: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+                    }
+                  }}
+                  title="Open terminal in a new window"
+                >
+                  <ExternalLink size={16} /> Open in Popup
+                </button>
+                <button
+                  className="btn-outline"
+                  onClick={closeCurrentTerminal}
+                >
+                  <X size={16} /> Close Terminal
+                </button>
+              </>
+            )}
+            <button
+              className="btn-primary"
+              onClick={() => setShowShellDialog(true)}
+              disabled={isCreating}
+            >
+              <Terminal size={16} /> New Terminal
+            </button>
+          </div>
+        </div>
+
+        {showShellDialog && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full mx-4">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Select Shell</h3>
+                <button
+                  className="text-slate-400 hover:text-white"
+                  onClick={() => setShowShellDialog(false)}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="space-y-3">
+                <button
+                  className="w-full p-4 bg-slate-900/50 hover:bg-slate-900 border border-slate-700 rounded-lg text-left transition-colors"
+                  onClick={() => createNewTerminal("cmd")}
+                >
+                  <div className="font-medium text-white">Command Prompt (cmd.exe)</div>
+                  <div className="text-sm text-slate-400 mt-1">Windows Command Prompt</div>
+                </button>
+                <button
+                  className="w-full p-4 bg-slate-900/50 hover:bg-slate-900 border border-slate-700 rounded-lg text-left transition-colors"
+                  onClick={() => createNewTerminal("powershell")}
+                >
+                  <div className="font-medium text-white">PowerShell</div>
+                  <div className="text-sm text-slate-400 mt-1">Windows PowerShell</div>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!terminalSession ? (
+          <div className="text-center py-12 text-slate-400">
+            <Terminal size={48} className="mx-auto mb-4 opacity-50" />
+            <p className="text-lg mb-2">No active terminal</p>
+            <p className="text-sm">Click "New Terminal" to create one</p>
+          </div>
+        ) : (
+          <div className="h-[600px]">
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-full bg-slate-900 rounded-lg border border-slate-800">
+                <div className="text-center">
+                  <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                  <p className="text-sm text-slate-400">Loading terminal...</p>
+                </div>
+              </div>
+            }>
+              <TerminalViewer
+                sessionId={terminalSession.id}
+                onClose={closeCurrentTerminal}
+              />
+            </Suspense>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RemoteDesktopTab({ t }: { t: TranslateFn }) {
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [password, setPassword] = useState("");
 
   const { data: config } = useSWR<VncConfig>("vnc-config", () => api<VncConfig>("/api/vnc/config"));
-  const { data: status, mutate: mutateStatus } = useSWR<VncStatus>("vnc-status", () => api<VncStatus>("/api/vnc/status"), { refreshInterval: 2000 });
+  const { data: status, mutate: mutateStatus } = useSWR<VncStatus>("vnc-status", () => api<VncStatus>("/api/vnc/status"), { 
+    refreshInterval: 2000,
+    revalidateOnFocus: true,
+    revalidateOnReconnect: true
+  });
+  
+  // Ensure status is fetched immediately on mount
+  useEffect(() => {
+    mutateStatus();
+  }, [mutateStatus]);
 
   const handleStart = async () => {
     setIsStarting(true);

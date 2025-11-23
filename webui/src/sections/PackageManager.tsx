@@ -11,7 +11,7 @@ import { showToast } from "../App";
 const fetcher = (url: string) => api<InstalledApplication[]>(url);
 const bundlesFetcher = () => api<PackageBundle[]>("/api/packages/bundles");
 
-type PackageTab = "installed" | "install" | "saved" | "bundles";
+type PackageTab = "installed" | "install" | "bundles";
 
 export default function PackageManager() {
   const [activeTab, setActiveTab] = useState<PackageTab>("installed");
@@ -444,8 +444,7 @@ export default function PackageManager() {
 
   const packageTabs: SubmenuItem[] = [
     { id: "installed", label: "Installed Packages", icon: <Package size={16} /> },
-    { id: "install", label: "Install Packages", icon: <SearchIcon size={16} /> },
-    { id: "saved", label: "Saved Packages", icon: <Archive size={16} /> },
+    { id: "install", label: "Search Packages", icon: <SearchIcon size={16} /> },
     { id: "bundles", label: "Bundles", icon: <Archive size={16} /> }
   ];
 
@@ -463,15 +462,13 @@ export default function PackageManager() {
 
       {/* Installed Packages Tab */}
       {activeTab === "installed" && (
-        <div className="flex items-center justify-end gap-2 mb-2">
-          <button className="btn-outline" onClick={() => mutate()}>
-            <RefreshCcw size={16} /> Refresh
-          </button>
-        </div>
-      )}
-      {activeTab === "installed" && (
         <div className="panel">
-            <h3 className="panel-title mb-3">Installed Packages</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="panel-title mb-0">Installed Packages</h3>
+              <button className="icon-btn" onClick={() => mutate()} title="Refresh">
+                <RefreshCcw size={16} />
+              </button>
+            </div>
             <div className="mb-3">
               <input
                 className="w-full input-text"
@@ -540,7 +537,7 @@ export default function PackageManager() {
           <div className="panel space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="panel-title mb-0 flex items-center gap-2">
-                <SearchIcon size={18} /> Search winget packages
+                <SearchIcon size={18} /> Search Packages
               </h3>
             </div>
             <div className="flex gap-2">
@@ -774,14 +771,6 @@ export default function PackageManager() {
       )}
 
       {/* Bundles Tab */}
-      {/* Saved Packages Tab */}
-      {activeTab === "saved" && (
-        <div className="panel">
-          <h3 className="panel-title mb-3">Saved Packages</h3>
-          <p className="text-sm text-slate-400">Saved packages functionality coming soon.</p>
-        </div>
-      )}
-
       {/* Bundles Tab */}
       {activeTab === "bundles" && (
         <div className="space-y-4">

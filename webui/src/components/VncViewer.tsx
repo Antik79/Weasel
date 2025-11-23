@@ -10,15 +10,15 @@ interface VncViewerProps {
 }
 
 export default function VncViewer({ host, port, password, onDisconnect }: VncViewerProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const rfbRef = useRef<any>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<string>("Connecting...");
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!containerRef.current) return;
 
-    const canvas = canvasRef.current;
+    const container = containerRef.current;
     
     // Create WebSocket URL - VNC uses raw TCP, so we need a WebSocket proxy
     // The backend should provide a WebSocket endpoint that proxies to the VNC server
@@ -56,28 +56,20 @@ export default function VncViewer({ host, port, password, onDisconnect }: VncVie
         // Create RFB client - noVNC will handle authentication automatically
         // Note: noVNC connects automatically when RFB is instantiated
         console.log("Creating RFB client with WebSocket URL:", wsUrl);
-        console.log("Password provided:", password ? "yes (length: " + password.length + ")" : "no");
+        console.log("Password provided:", password ? `yes (length: ${password.length})` : "no");
+
+        // IMPORTANT: For noVNC, credentials must be set as a property, not in constructor options
+        // Create RFB instance with the container div - noVNC will create its own canvas
+        const rfb = new RFB(container, wsUrl);
         
-        // IMPORTANT: Set credentials BEFORE creating RFB instance
-        // noVNC needs credentials to be available when the connection starts
-        const rfbOptions: any = {
-          // Set credentials in options if available
-        };
+        // Set credentials immediately after creation, before connection starts
+        // noVNC checks for credentials when the credentialsrequired event fires
         if (password) {
-          rfbOptions.credentials = { password: password };
-          console.log("VNC credentials set in RFB constructor options, password length:", password.length);
+          // Set credentials as a property (this is the correct way for noVNC)
+          rfb.credentials = { password: password };
+          console.log("VNC credentials set as property");
         } else {
           console.log("No password provided for VNC connection");
-        }
-        
-        console.log("Creating RFB instance with options:", { ...rfbOptions, credentials: rfbOptions.credentials ? "***" : undefined });
-        const rfb = new RFB(canvas, wsUrl, Object.keys(rfbOptions).length > 0 ? rfbOptions : undefined);
-        
-        // Also set credentials property immediately after creation for compatibility
-        // This ensures credentials are available even if constructor options didn't work
-        if (password) {
-          rfb.credentials = { password: password };
-          console.log("VNC credentials also set as property after RFB creation");
         }
 
         rfb.addEventListener("connect", () => {
@@ -85,9 +77,9 @@ export default function VncViewer({ host, port, password, onDisconnect }: VncVie
           setConnectionStatus("Connected");
           console.log("VNC connected successfully");
         });
-        
-        rfb.addEventListener("serverinit", () => {
-          console.log("VNC ServerInit received");
+
+        rfb.addEventListener("desktopname", (e: any) => {
+          console.log("VNC desktop name:", e.detail?.name);
         });
 
         rfb.addEventListener("disconnect", (e: any) => {
@@ -102,18 +94,18 @@ export default function VncViewer({ host, port, password, onDisconnect }: VncVie
           console.log("VNC credentials required event fired", e);
           setConnectionStatus("Sending credentials...");
           if (password) {
-            // Set credentials immediately - noVNC should use them automatically
+            // Ensure credentials are set (they should already be set, but double-check)
             rfb.credentials = { password: password };
-            console.log("VNC credentials set in credentialsrequired handler, password length:", password.length);
+            console.log("VNC credentials set in credentialsrequired handler");
             
-            // Some noVNC versions need explicit sendCredentials call
-            // Try multiple methods to ensure credentials are sent
+            // noVNC should automatically use the credentials property
+            // But we can try to explicitly trigger it if methods are available
             try {
-              // Method 1: sendCredentials (if available)
+              // Method 1: sendCredentials (if available in this noVNC version)
               if (typeof (rfb as any).sendCredentials === "function") {
                 (rfb as any).sendCredentials({ password: password });
                 console.log("Called sendCredentials method");
-                return; // Exit early if successful
+                return;
               }
               
               // Method 2: sendPassword (alternative method)
@@ -123,16 +115,12 @@ export default function VncViewer({ host, port, password, onDisconnect }: VncVie
                 return;
               }
               
-              // Method 3: Try to trigger credential sending by accessing the property
-              // Setting credentials should be enough for most noVNC versions
-              console.log("No explicit send method found, credentials property set - noVNC should use them automatically");
-              
-              // Force a re-check by accessing the credentials property
-              const creds = rfb.credentials;
-              console.log("Current credentials:", creds ? "set" : "not set");
+              // Method 3: Just setting credentials should work for most noVNC versions
+              // The credentials property is checked automatically by noVNC
+              console.log("Credentials property set - noVNC should use them automatically");
               
             } catch (err) {
-              console.error("Error sending credentials:", err);
+              console.error("Error in credentialsrequired handler:", err);
               setConnectionStatus("Error sending credentials");
             }
           } else {
@@ -153,8 +141,11 @@ export default function VncViewer({ host, port, password, onDisconnect }: VncVie
           console.error("VNC error", e.detail, e);
         });
 
-        rfb.scaleViewport = true;
-        rfb.resizeSession = false;
+        // Configure noVNC options
+        // Reference: https://github.com/novnc/noVNC/blob/master/docs/EMBEDDING.md
+        rfb.scaleViewport = false; // Don't scale - show at native resolution
+        rfb.resizeSession = false; // Don't resize the remote session
+        rfb.clipViewport = false; // Use scrollbars instead of clipping for large screens
 
         rfbRef.current = rfb;
       } catch (error) {
@@ -194,10 +185,15 @@ export default function VncViewer({ host, port, password, onDisconnect }: VncVie
           Disconnect
         </button>
       </div>
-      <canvas
-        ref={canvasRef}
+      <div
+        ref={containerRef}
         className="w-full h-full"
-        style={{ display: "block" }}
+        style={{
+          display: "block",
+          width: "100%",
+          height: "100%",
+          overflow: "auto"
+        }}
       />
     </div>
   );

@@ -23,6 +23,7 @@ public static class ServiceCollectionExtensions
             services.AddHostedService(provider => (DiskMonitorService)provider.GetRequiredService<IDiskMonitorService>());
             services.AddHostedService<ApplicationMonitorService>();
             services.AddSingleton<IVncService, VncService>();
+            services.AddSingleton<ITerminalService, TerminalService>();
 
             return services;
     }

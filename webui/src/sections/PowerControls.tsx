@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Power, Shield, Lock } from "lucide-react";
+import { Power, Lock, RefreshCw } from "lucide-react";
 import { api } from "../api/client";
 import { showToast } from "../App";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -54,18 +54,18 @@ export default function PowerControls() {
       <h3 className="panel-title">Power</h3>
       <div className="grid grid-cols-3 gap-3">
         <button
-          className="btn-primary flex items-center justify-center gap-2"
+          className="btn-outline flex items-center justify-center gap-2"
           onClick={() => invoke("/api/power/restart", { force: true })}
           disabled={isBusy}
         >
-          <Power size={16} /> Restart
+          <RefreshCw size={16} /> Restart
         </button>
         <button
           className="btn-outline flex items-center justify-center gap-2"
           onClick={() => invoke("/api/power/shutdown", { force: true })}
           disabled={isBusy}
         >
-          <Shield size={16} /> Shutdown
+          <Power size={16} /> Shutdown
         </button>
         <button
           className="btn-outline flex items-center justify-center gap-2"
