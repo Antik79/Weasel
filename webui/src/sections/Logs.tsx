@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import useSWR from "swr";
 import { RefreshCw, FileText, Folder, Archive, Download, ArrowUp, ArrowDown, Search as SearchIcon } from "lucide-react";
 import { api } from "../api/client";
+import { getAuthToken } from "../components/Login";
 import { LogsResponse, LogFileInfo } from "../types";
 import { formatBytes, formatDate } from "../utils/format";
 import { useTranslation } from "../i18n/i18n";
@@ -15,9 +16,13 @@ const logsFetcher = (subfolder?: string) => {
 };
 
 const openLogDownload = (fileName: string, subfolder?: string | null) => {
+  const authToken = getAuthToken();
   const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
   if (subfolder) {
     url.searchParams.set("subfolder", subfolder);
+  }
+  if (authToken) {
+    url.searchParams.set("token", authToken);
   }
   window.open(url.toString(), "_blank");
 };

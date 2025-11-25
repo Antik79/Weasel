@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback, useRef, Suspense, lazy } fro
 import useSWR from "swr";
 import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square, Monitor as MonitorIcon, Eye as EyeIcon, Shield, ChevronDown, ChevronUp, ChevronRight, Edit2, ArrowUp, ArrowDown, Search as SearchIcon, Archive, Terminal, X, ExternalLink } from "lucide-react";
 import { api, download, createTerminal, closeTerminal } from "../api/client";
+import { getAuthToken } from "../components/Login";
 
 // Lazy load TerminalViewer - only loads when Terminal tab is active
 const TerminalViewer = lazy(() => import("../components/TerminalViewer"));
@@ -36,8 +37,14 @@ type TranslateFn = (key: string, replacements?: Record<string, string | number>)
 const captureFetcher = () => api<CaptureSettings>("/api/settings/capture");
 
 const buildRawUrl = (path: string) => {
+  const authToken = getAuthToken();
   const url = new URL("/api/fs/raw", window.location.origin);
   url.searchParams.set("path", path);
+
+  if (authToken) {
+    url.searchParams.set("token", authToken);
+  }
+
   return url.toString();
 };
 

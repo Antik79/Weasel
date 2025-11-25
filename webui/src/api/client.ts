@@ -119,10 +119,20 @@ export async function upload(formData: FormData): Promise<void> {
   }
 }
 
+export function buildAuthenticatedUrl(path: string): string {
+  const url = new URL(path, window.location.origin);
+  const authToken = getAuthToken();
+
+  if (authToken) {
+    url.searchParams.set('token', authToken);
+  }
+
+  return url.toString();
+}
+
 export function download(path: string) {
-  const url = new URL("/api/fs/download", window.location.origin);
-  url.searchParams.set("path", path);
-  window.open(url.toString(), "_blank");
+  const url = buildAuthenticatedUrl(`/api/fs/raw?path=${encodeURIComponent(path)}`);
+  window.open(url, "_blank");
 }
 
 // System API functions

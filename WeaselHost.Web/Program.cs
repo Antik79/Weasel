@@ -128,9 +128,17 @@ public static class Program
                 }
 
                 // For all other routes (especially API routes), require authentication
-                if (!context.Request.Headers.TryGetValue(AuthHeaderName, out var headerValue) ||
-                    string.IsNullOrWhiteSpace(headerValue) ||
-                    !TokensMatch(headerValue!, security.Password!))
+                // Try header first (preferred method)
+                var tokenValue = context.Request.Headers[AuthHeaderName].FirstOrDefault();
+
+                // Fallback to query parameter for direct browser access (screenshots, file downloads)
+                if (string.IsNullOrWhiteSpace(tokenValue))
+                {
+                    tokenValue = context.Request.Query["token"].FirstOrDefault();
+                }
+
+                // Validate the token (same validation for both methods)
+                if (string.IsNullOrWhiteSpace(tokenValue) || !TokensMatch(tokenValue!, security.Password!))
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     await context.Response.WriteAsync("Authentication required.");
