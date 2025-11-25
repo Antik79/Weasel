@@ -7,7 +7,13 @@ namespace WeaselHost.Infrastructure;
 
 public static class ServiceCollectionExtensions
 {
-    public static IServiceCollection AddWeaselHostServices(this IServiceCollection services)
+    /// <summary>
+    /// Registers all WeaselHost services with the dependency injection container.
+    /// </summary>
+    /// <param name="services">The service collection</param>
+    /// <param name="registerHostedServices">If true, registers background monitoring services (ApplicationMonitor, DiskMonitor, IntervalScreenshot). Should only be true for the tray application host.</param>
+    /// <returns>The service collection for chaining</returns>
+    public static IServiceCollection AddWeaselHostServices(this IServiceCollection services, bool registerHostedServices = true)
     {
         services.AddSingleton<IFileSystemService, FileSystemService>();
         services.AddSingleton<IPackageService, PackageService>();
@@ -19,13 +25,18 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IScreenshotService, ScreenshotService>();
         services.AddSingleton<ISettingsStore, SettingsStore>();
         services.AddSingleton<IEmailService, EmailService>();
-            services.AddSingleton<IDiskMonitorService, DiskMonitorService>();
+        services.AddSingleton<IDiskMonitorService, DiskMonitorService>();
+        services.AddSingleton<IVncService, VncService>();
+        services.AddSingleton<ITerminalService, TerminalService>();
+
+        // Only register hosted services in the tray application to prevent duplicate execution
+        if (registerHostedServices)
+        {
             services.AddHostedService(provider => (DiskMonitorService)provider.GetRequiredService<IDiskMonitorService>());
             services.AddHostedService<ApplicationMonitorService>();
-            services.AddSingleton<IVncService, VncService>();
-            services.AddSingleton<ITerminalService, TerminalService>();
+        }
 
-            return services;
+        return services;
     }
 }
 

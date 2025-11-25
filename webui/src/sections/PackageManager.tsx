@@ -1,11 +1,12 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import useSWR from "swr";
-import { Package, RefreshCcw, Search as SearchIcon, Plus, Trash2, Download, Upload, Archive } from "lucide-react";
+import { Package, RefreshCcw, Search as SearchIcon, Plus, Trash2, Download, Upload, Archive, ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "../api/client";
-import { InstalledApplication, PackageOperationResult, PackageSearchResult, PackageBundle, BundlePackage, LogsResponse } from "../types";
+import { InstalledApplication, PackageOperationResult, PackageSearchResult, PackageBundle, BundlePackage, LogsResponse, LogFileInfo } from "../types";
 import Table, { TableColumn } from "../components/Table";
 import SubmenuNav, { SubmenuItem } from "../components/SubmenuNav";
 import ConfirmDialog from "../components/ConfirmDialog";
+import { LogPanel } from "../components/LogPanel";
 import { showToast } from "../App";
 
 const fetcher = (url: string) => api<InstalledApplication[]>(url);
@@ -920,6 +921,9 @@ export default function PackageManager() {
           )}
         </div>
       )}
+
+      {/* Package Operation Logs - Always Visible */}
+      <LogPanel name="Packages" title="Package Operations Log" subfolder="Packages" />
 
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useCallback, useRef, Suspense, lazy } from "react";
 import useSWR from "swr";
-import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square, Monitor as MonitorIcon, Eye as EyeIcon, Shield, ChevronDown, ChevronUp, Edit2, ArrowUp, ArrowDown, Search as SearchIcon, Archive, Terminal, X, ExternalLink } from "lucide-react";
+import { Camera, Image as ImageIcon, Trash2, RefreshCw, FileText, HardDrive, AlertTriangle, Save, XCircle, Folder, FolderOpen, Monitor, Wrench, Clock, Eye, Download, CheckSquare, Square, Monitor as MonitorIcon, Eye as EyeIcon, Shield, ChevronDown, ChevronUp, ChevronRight, Edit2, ArrowUp, ArrowDown, Search as SearchIcon, Archive, Terminal, X, ExternalLink } from "lucide-react";
 import { api, download, createTerminal, closeTerminal } from "../api/client";
 
 // Lazy load TerminalViewer - only loads when Terminal tab is active
@@ -10,10 +10,24 @@ import { formatBytes, formatDate, formatPath } from "../utils/format";
 import FilePicker from "../components/FilePicker";
 import FolderPicker from "../components/FolderPicker";
 import Table, { TableColumn } from "../components/Table";
+import { LogPanel } from "../components/LogPanel";
 import { useTranslation } from "../i18n/i18n";
 import { useTheme, type Theme } from "../theme";
 import { showToast } from "../App";
 import ConfirmDialog from "../components/ConfirmDialog";
+
+// UUID generator with polyfill for environments without crypto.randomUUID
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback UUID v4 implementation
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 type ToolsTab = "application-monitor" | "storage-monitor" | "terminal" | "vnc" | "screenshots";
 
@@ -34,6 +48,43 @@ export default function Tools() {
   const [preview, setPreview] = useState<{ path: string; url: string } | null>(null);
   const [isSavingCapture, setIsSavingCapture] = useState(false);
   const [selectedScreenshots, setSelectedScreenshots] = useState<Set<string>>(new Set());
+
+  // Hash routing support for subtabs
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      // Parse hash format: /tools/subtab
+      const parts = hash.split('/').filter(Boolean);
+      if (parts[0] === 'tools' && parts[1]) {
+        const subtab = parts[1] as ToolsTab;
+        // Validate subtab exists
+        const validSubtabs: ToolsTab[] = ["application-monitor", "storage-monitor", "terminal", "vnc", "screenshots"];
+        if (validSubtabs.includes(subtab)) {
+          setTab(subtab);
+        }
+      }
+    };
+
+    // Handle initial hash on mount
+    handleHashChange();
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Update hash when subtab changes
+  useEffect(() => {
+    const currentHash = window.location.hash.slice(1);
+    const parts = currentHash.split('/').filter(Boolean);
+
+    // Only update if we're on the tools tab and the subtab is different
+    if (parts[0] === 'tools' && parts[1] !== tab) {
+      window.location.hash = `/tools/${tab}`;
+    }
+  }, [tab]);
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -44,7 +95,7 @@ export default function Tools() {
     isOpen: false,
     title: "",
     message: "",
-    onConfirm: () => {},
+    onConfirm: () => { },
     variant: "info"
   });
 
@@ -150,7 +201,7 @@ export default function Tools() {
 
   const downloadSelectedScreenshots = async () => {
     if (selectedScreenshots.size === 0) return;
-    
+
     try {
       const paths = Array.from(selectedScreenshots);
       const csrfToken = localStorage.getItem("weasel.csrf") || "local";
@@ -162,17 +213,17 @@ export default function Tools() {
       if (authToken) {
         headers["X-Weasel-Token"] = authToken;
       }
-      
+
       const response = await fetch("/api/fs/download/bulk", {
         method: "POST",
         headers,
         body: JSON.stringify({ paths })
       });
-      
+
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -182,7 +233,7 @@ export default function Tools() {
       a.click();
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
-      
+
       setSelectedScreenshots(new Set());
     } catch (err) {
       showToast(`Failed to download screenshots: ${err instanceof Error ? err.message : String(err)}`, "error");
@@ -191,25 +242,25 @@ export default function Tools() {
 
   const deleteSelectedScreenshots = async () => {
     if (selectedScreenshots.size === 0) return;
-    
+
     const count = selectedScreenshots.size;
     setConfirmDialog({
       isOpen: true,
       title: "Delete Screenshots",
       message: `Delete ${count} screenshot${count > 1 ? 's' : ''}?`,
       onConfirm: async () => {
-    
-    try {
-      const paths = Array.from(selectedScreenshots);
-      for (const path of paths) {
-        const url = new URL("/api/fs", window.location.origin);
-        url.searchParams.set("path", path);
-        await api(url.toString(), { method: "DELETE" });
-        if (preview?.path === path) {
-          URL.revokeObjectURL(preview.url);
-          setPreview(null);
-        }
-      }
+
+        try {
+          const paths = Array.from(selectedScreenshots);
+          for (const path of paths) {
+            const url = new URL("/api/fs", window.location.origin);
+            url.searchParams.set("path", path);
+            await api(url.toString(), { method: "DELETE" });
+            if (preview?.path === path) {
+              URL.revokeObjectURL(preview.url);
+              setPreview(null);
+            }
+          }
           setSelectedScreenshots(new Set());
           await mutate?.();
           showToast(`Deleted ${count} screenshot${count > 1 ? 's' : ''} successfully`, "success");
@@ -331,8 +382,8 @@ export default function Tools() {
               </div>
               <div className="flex gap-2">
                 {images.length > 0 && (
-                  <button 
-                    className="btn-outline text-xs" 
+                  <button
+                    className="btn-outline text-xs"
                     onClick={selectedScreenshots.size === images.length ? clearScreenshotSelection : selectAllScreenshots}
                   >
                     {selectedScreenshots.size === images.length ? (
@@ -355,98 +406,98 @@ export default function Tools() {
               </div>
             </div>
 
-          {isLoading && <p className="text-sm text-slate-400">{t("tools.screenshots.loading")}</p>}
+            {isLoading && <p className="text-sm text-slate-400">{t("tools.screenshots.loading")}</p>}
 
-          {!isLoading && folder && images.length === 0 && (
-            <div className="text-sm text-slate-400 flex items-center gap-2">
-              <ImageIcon size={16} />
-              {t("tools.screenshots.empty")}
-            </div>
-          )}
-          {!folder && (
-            <p className="text-sm text-red-400">{t("tools.screenshots.configurePrompt")}</p>
-          )}
-
-          {selectedScreenshots.size > 0 && (
-            <div className="panel bg-sky-900/20 border-sky-500/50">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-slate-300">
-                  {selectedScreenshots.size} screenshot{selectedScreenshots.size > 1 ? 's' : ''} selected
-                </span>
-                <div className="flex gap-2">
-                  <button className="btn-outline text-xs" onClick={clearScreenshotSelection}>
-                    Clear
-                  </button>
-                  <button className="btn-primary text-xs" onClick={downloadSelectedScreenshots}>
-                    <Download size={14} /> Download as ZIP
-                  </button>
-                  <button className="btn-outline text-xs text-red-400 hover:text-red-300" onClick={deleteSelectedScreenshots}>
-                    <Trash2 size={14} /> Delete
-                  </button>
-                </div>
+            {!isLoading && folder && images.length === 0 && (
+              <div className="text-sm text-slate-400 flex items-center gap-2">
+                <ImageIcon size={16} />
+                {t("tools.screenshots.empty")}
               </div>
-            </div>
-          )}
+            )}
+            {!folder && (
+              <p className="text-sm text-red-400">{t("tools.screenshots.configurePrompt")}</p>
+            )}
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.isArray(images) && images.map((img) => (
-              <div key={img.fullPath} className={`screenshot-card ${selectedScreenshots.has(img.fullPath) ? 'ring-2 ring-sky-500' : ''}`}>
-                <div className="relative">
-                  <img
-                    src={buildRawUrl(img.fullPath)}
-                    alt={img.name}
-                    className="screenshot-thumb"
-                    onClick={() => openPreview(img)}
-                  />
-                  <div className="absolute top-2 left-2">
-                    <button
-                      className="icon-btn bg-slate-900/80 hover:bg-slate-800/80"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleScreenshotSelection(img.fullPath);
-                      }}
-                      title={selectedScreenshots.has(img.fullPath) ? "Deselect" : "Select"}
-                    >
-                      {selectedScreenshots.has(img.fullPath) ? (
-                        <CheckSquare size={16} className="text-sky-400" />
-                      ) : (
-                        <Square size={16} />
-                      )}
+            {selectedScreenshots.size > 0 && (
+              <div className="panel bg-sky-900/20 border-sky-500/50">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-slate-300">
+                    {selectedScreenshots.size} screenshot{selectedScreenshots.size > 1 ? 's' : ''} selected
+                  </span>
+                  <div className="flex gap-2">
+                    <button className="btn-outline text-xs" onClick={clearScreenshotSelection}>
+                      Clear
+                    </button>
+                    <button className="btn-primary text-xs" onClick={downloadSelectedScreenshots}>
+                      <Download size={14} /> Download as ZIP
+                    </button>
+                    <button className="btn-outline text-xs text-red-400 hover:text-red-300" onClick={deleteSelectedScreenshots}>
+                      <Trash2 size={14} /> Delete
                     </button>
                   </div>
                 </div>
-                <div className="screenshot-meta">
-                  <div>
-                    <p className="screenshot-name">{img.name}</p>
-                    <p className="text-xs text-slate-400">{formatDate(img.modifiedAt)}</p>
-                  </div>
-                  <div className="screenshot-actions">
-                    <button 
-                      className="icon-btn" 
+              </div>
+            )}
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.isArray(images) && images.map((img) => (
+                <div key={img.fullPath} className={`screenshot-card ${selectedScreenshots.has(img.fullPath) ? 'ring-2 ring-sky-500' : ''}`}>
+                  <div className="relative">
+                    <img
+                      src={buildRawUrl(img.fullPath)}
+                      alt={img.name}
+                      className="screenshot-thumb"
                       onClick={() => openPreview(img)}
-                      title={t("common.view")}
-                    >
-                      <Eye size={16} />
-                    </button>
-                    <button 
-                      className="icon-btn" 
-                      onClick={() => download(img.fullPath)}
-                      title={t("common.download")}
-                    >
-                      <Download size={16} />
-                    </button>
-                    <button 
-                      className="icon-btn" 
-                      onClick={() => deleteScreenshot(img)}
-                      title="Delete"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    />
+                    <div className="absolute top-2 left-2">
+                      <button
+                        className="icon-btn bg-slate-900/80 hover:bg-slate-800/80"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleScreenshotSelection(img.fullPath);
+                        }}
+                        title={selectedScreenshots.has(img.fullPath) ? "Deselect" : "Select"}
+                      >
+                        {selectedScreenshots.has(img.fullPath) ? (
+                          <CheckSquare size={16} className="text-sky-400" />
+                        ) : (
+                          <Square size={16} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="screenshot-meta">
+                    <div>
+                      <p className="screenshot-name">{img.name}</p>
+                      <p className="text-xs text-slate-400">{formatDate(img.modifiedAt)}</p>
+                    </div>
+                    <div className="screenshot-actions">
+                      <button
+                        className="icon-btn"
+                        onClick={() => openPreview(img)}
+                        title={t("common.view")}
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        className="icon-btn"
+                        onClick={() => download(img.fullPath)}
+                        title={t("common.download")}
+                      >
+                        <Download size={16} />
+                      </button>
+                      <button
+                        className="icon-btn"
+                        onClick={() => deleteScreenshot(img)}
+                        title="Delete"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
           </div>
 
           {preview && (
@@ -467,6 +518,8 @@ export default function Tools() {
               </div>
             </div>
           )}
+
+          <ScreenshotLogPanel t={t} />
         </div>
       )}
 
@@ -495,35 +548,7 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
   const { data: status, mutate: refreshStatus } = useSWR<DiskMonitoringStatus>("disk-monitoring-status", () => api<DiskMonitoringStatus>("/api/disk-monitoring/status"), { refreshInterval: 30000 });
   const { data: availableDrives } = useSWR<Array<{ name: string; totalBytes: number; freeBytes: number }>>("available-drives", () => api<Array<{ name: string; totalBytes: number; freeBytes: number }>>("/api/disk-monitoring/drives"));
 
-  // Log tailing - get the most recent log file
-  const { data: logFiles } = useSWR(
-    "disk-monitor-log-files",
-    () => {
-      const url = new URL("/api/logs", window.location.origin);
-      url.searchParams.set("subfolder", "DiskMonitor");
-      return api<LogsResponse>(url.toString());
-    },
-    { refreshInterval: 10000 }
-  );
 
-  const latestLogFile = useMemo(() => {
-    if (!logFiles || !logFiles.files || logFiles.files.length === 0) return null;
-    // Sort by name descending (latest first) and take the first one
-    return logFiles.files.sort((a: LogFileInfo, b: LogFileInfo) => b.name.localeCompare(a.name))[0];
-  }, [logFiles]);
-
-  const { data: logContent, isLoading: logLoading } = useSWR(
-    latestLogFile ? ["disk-monitor-log", latestLogFile.name] : null,
-    ([, fileName]: [string, string]) => {
-      const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
-      url.searchParams.set("subfolder", "DiskMonitor");
-      return api<string>(url.toString());
-    },
-    {
-      refreshInterval: 2000, // Tail the log every 2 seconds
-      revalidateOnFocus: false
-    }
-  );
 
   const [form, setForm] = useState<DiskMonitoringConfig>({
     enabled: false,
@@ -1000,23 +1025,7 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
       </div>
 
       {/* Storage Monitor Log Tailing Section */}
-      <div className="panel space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="panel-title mb-0">{t("tools.disk.logTitle", "Storage Monitor Log")}</h3>
-          <div className="text-xs text-slate-400">
-            {logLoading ? "Loading..." : "Tailing log (auto-refreshing every 2 seconds)"}
-          </div>
-        </div>
-        <div className="bg-slate-950 rounded border border-slate-800 p-3 max-h-96 overflow-y-auto">
-          {logLoading && <p className="text-sm text-slate-400">Loading log...</p>}
-          {!logLoading && !logContent && <p className="text-sm text-slate-400">No log content available</p>}
-          {!logLoading && logContent && (
-            <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono">
-              {logContent}
-            </pre>
-          )}
-        </div>
-      </div>
+      <LogPanel name="DiskMonitor" title={t("tools.disk.logTitle")} subfolder="DiskMonitor" />
     </div>
   );
 }
@@ -1027,36 +1036,8 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
   const [currentAppIdForPicker, setCurrentAppIdForPicker] = useState<string | null>(null);
   const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
   const { data: config, mutate: refreshConfig } = useSWR<ApplicationMonitorConfig>("application-monitor-config", () => api<ApplicationMonitorConfig>("/api/application-monitor/config"));
-  
-  // Log tailing - get the most recent log file
-  const { data: logFiles } = useSWR(
-    "application-monitor-log-files",
-    () => {
-      const url = new URL("/api/logs", window.location.origin);
-      url.searchParams.set("subfolder", "ApplicationMonitor");
-      return api<LogsResponse>(url.toString());
-    },
-    { refreshInterval: 10000 }
-  );
 
-  const latestLogFile = useMemo(() => {
-    if (!logFiles?.files || logFiles.files.length === 0) return null;
-    // Sort by name (which includes date) descending and get the first one
-    return logFiles.files.sort((a: LogFileInfo, b: LogFileInfo) => b.name.localeCompare(a.name))[0];
-  }, [logFiles]);
 
-  const { data: logContent, isLoading: logLoading } = useSWR(
-    latestLogFile ? ["application-monitor-log", latestLogFile.name] : null,
-    ([, fileName]: [string, string]) => {
-      const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
-      url.searchParams.set("subfolder", "ApplicationMonitor");
-      return api<string>(url.toString());
-    },
-    { 
-      revalidateOnFocus: true,
-      refreshInterval: 2000 // Auto-refresh every 2 seconds for tailing
-    }
-  );
 
   const [form, setForm] = useState<ApplicationMonitorConfig>({
     enabled: false,
@@ -1092,10 +1073,11 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
   }, [form, refreshConfig, t]);
 
   const addApplication = useCallback(() => {
+    const newId = generateUUID();
     setForm((prev) => ({
       ...prev,
       applications: [...prev.applications, {
-        id: crypto.randomUUID(),
+        id: newId,
         name: "",
         executablePath: "",
         arguments: null,
@@ -1107,6 +1089,8 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
         eventLogSource: null
       }]
     }));
+    // Automatically expand the new application panel
+    setExpandedApps(prev => new Set([...prev, newId]));
   }, []);
 
   const updateApplication = useCallback((id: string, updates: Partial<MonitoredApplication>) => {
@@ -1309,56 +1293,56 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
                             </div>
                           </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                    <label className="block text-sm text-slate-400 mb-1">{t("tools.app.checkInterval")}</label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={3600}
-                          className="input-text"
-                          value={app.checkIntervalSeconds}
-                          onChange={(e) => updateApplication(app.id, { checkIntervalSeconds: Number(e.target.value) })}
-                        />
-                      </div>
-                      <div>
-                    <label className="block text-sm text-slate-400 mb-1">{t("tools.app.restartDelay")}</label>
-                        <input
-                          type="number"
-                          min={0}
-                          max={300}
-                          className="input-text"
-                          value={app.restartDelaySeconds}
-                          onChange={(e) => updateApplication(app.id, { restartDelaySeconds: Number(e.target.value) })}
-                        />
-                      </div>
-                    </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <label className="block text-sm text-slate-400 mb-1">{t("tools.app.checkInterval")}</label>
+                              <input
+                                type="number"
+                                min={1}
+                                max={3600}
+                                className="input-text"
+                                value={app.checkIntervalSeconds}
+                                onChange={(e) => updateApplication(app.id, { checkIntervalSeconds: Number(e.target.value) })}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-sm text-slate-400 mb-1">{t("tools.app.restartDelay")}</label>
+                              <input
+                                type="number"
+                                min={0}
+                                max={300}
+                                className="input-text"
+                                value={app.restartDelaySeconds}
+                                onChange={(e) => updateApplication(app.id, { restartDelaySeconds: Number(e.target.value) })}
+                              />
+                            </div>
+                          </div>
 
-                    <div>
-                  <label className="block text-sm text-slate-400 mb-1">{t("tools.app.arguments")}</label>
-                      <input
-                        type="text"
-                        className="input-text"
-                    placeholder={t("tools.app.argumentsPlaceholder")}
-                        value={app.arguments || ""}
-                        onChange={(e) => updateApplication(app.id, { arguments: e.target.value || null })}
-                      />
-                    </div>
+                          <div>
+                            <label className="block text-sm text-slate-400 mb-1">{t("tools.app.arguments")}</label>
+                            <input
+                              type="text"
+                              className="input-text"
+                              placeholder={t("tools.app.argumentsPlaceholder")}
+                              value={app.arguments || ""}
+                              onChange={(e) => updateApplication(app.id, { arguments: e.target.value || null })}
+                            />
+                          </div>
 
-                    <div>
-                  <label className="block text-sm text-slate-400 mb-1">{t("tools.app.workingDirectory")}</label>
-                      <input
-                        type="text"
-                        className="input-text"
-                    placeholder={t("tools.app.workingPlaceholder")}
-                        value={formatPath(app.workingDirectory || "")}
-                        onChange={(e) => {
-                          // Normalize path by removing double backslashes
-                          const normalized = e.target.value.replace(/\\\\/g, '\\');
-                          updateApplication(app.id, { workingDirectory: normalized || null });
-                        }}
-                      />
-                    </div>
+                          <div>
+                            <label className="block text-sm text-slate-400 mb-1">{t("tools.app.workingDirectory")}</label>
+                            <input
+                              type="text"
+                              className="input-text"
+                              placeholder={t("tools.app.workingPlaceholder")}
+                              value={formatPath(app.workingDirectory || "")}
+                              onChange={(e) => {
+                                // Normalize path by removing double backslashes
+                                const normalized = e.target.value.replace(/\\\\/g, '\\');
+                                updateApplication(app.id, { workingDirectory: normalized || null });
+                              }}
+                            />
+                          </div>
 
                           <div>
                             <label className="block text-sm text-slate-400 mb-1">{t("tools.app.eventLogSource")}</label>
@@ -1383,23 +1367,7 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
       </div>
 
       {/* Log Tailing Section */}
-      <div className="panel space-y-2">
-        <div className="flex items-center justify-between">
-          <h3 className="panel-title mb-0">Application Monitor Log</h3>
-          <div className="text-xs text-slate-400">
-            {logLoading ? "Loading..." : "Tailing log (auto-refreshing every 2 seconds)"}
-          </div>
-        </div>
-        <div className="bg-slate-950 rounded border border-slate-800 p-3 max-h-96 overflow-y-auto">
-          {logLoading && <p className="text-sm text-slate-400">Loading log...</p>}
-          {!logLoading && !logContent && <p className="text-sm text-slate-400">No log content available</p>}
-          {!logLoading && logContent && (
-            <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono">
-              {logContent}
-            </pre>
-          )}
-        </div>
-      </div>
+      <LogPanel name="ApplicationMonitor" title={t("tools.app.logTitle")} subfolder="ApplicationMonitor" />
 
       {showFilePicker && (
         <FilePicker
@@ -1430,7 +1398,7 @@ function TerminalTab({ t }: { t: TranslateFn }) {
           // Ignore errors when closing old terminal
         }
       }
-      
+
       const session = await createTerminal(shellType);
       setTerminalSession(session);
       showToast(`Terminal created (${shellType})`, "success");
@@ -1443,7 +1411,7 @@ function TerminalTab({ t }: { t: TranslateFn }) {
 
   const closeCurrentTerminal = async () => {
     if (!terminalSession) return;
-    
+
     try {
       await closeTerminal(terminalSession.id);
       setTerminalSession(null);
@@ -1551,8 +1519,23 @@ function TerminalTab({ t }: { t: TranslateFn }) {
           </div>
         )}
       </div>
+
+      <TerminalLogPanel t={t} />
     </div>
   );
+}
+
+// Log panel components for each tool
+function ScreenshotLogPanel({ t }: { t: TranslateFn }) {
+  return <LogPanel name="Screenshots" title={t("tools.screenshots.logTitle")} subfolder="Screenshots" />;
+}
+
+function TerminalLogPanel({ t }: { t: TranslateFn }) {
+  return <LogPanel name="Terminal" title={t("tools.terminal.logTitle")} subfolder="Terminal" />;
+}
+
+function VncLogPanel({ t }: { t: TranslateFn }) {
+  return <LogPanel name="VNC" title={t("tools.vnc.logTitle")} subfolder="VNC" />;
 }
 
 function RemoteDesktopTab({ t }: { t: TranslateFn }) {
@@ -1561,12 +1544,12 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
   const [password, setPassword] = useState("");
 
   const { data: config } = useSWR<VncConfig>("vnc-config", () => api<VncConfig>("/api/vnc/config"));
-  const { data: status, mutate: mutateStatus } = useSWR<VncStatus>("vnc-status", () => api<VncStatus>("/api/vnc/status"), { 
+  const { data: status, mutate: mutateStatus } = useSWR<VncStatus>("vnc-status", () => api<VncStatus>("/api/vnc/status"), {
     refreshInterval: 2000,
     revalidateOnFocus: true,
     revalidateOnReconnect: true
   });
-  
+
   // Ensure status is fetched immediately on mount
   useEffect(() => {
     mutateStatus();
@@ -1600,10 +1583,10 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
 
   const handleConnect = () => {
     if (!status || !config) return;
-    
+
     const host = status.allowRemote ? window.location.hostname : "127.0.0.1";
     const port = status.port;
-    
+
     // Get password - use from input field, or prompt if required but not provided
     let connectPassword = password;
     if (config.hasPassword && !connectPassword) {
@@ -1615,7 +1598,7 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
       connectPassword = enteredPassword;
       setPassword(enteredPassword); // Store it for next time
     }
-    
+
     // Store connection params in localStorage for the popup
     localStorage.setItem("vnc_host", host);
     localStorage.setItem("vnc_port", port.toString());
@@ -1624,16 +1607,16 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
     } else {
       localStorage.removeItem("vnc_password");
     }
-    
+
     // Open popup window with VNC viewer
     const viewerUrl = `/vnc-viewer?host=${encodeURIComponent(host)}&port=${port}${connectPassword ? `&password=${encodeURIComponent(connectPassword)}` : ""}`;
-    
+
     const popup = window.open(
       viewerUrl,
       "VNC Viewer",
       `width=${screen.width},height=${screen.height},fullscreen=yes,resizable=yes,scrollbars=no`
     );
-    
+
     if (!popup) {
       showToast("Popup blocked. Please allow popups for this site to connect to VNC.", "error");
     }
@@ -1707,6 +1690,8 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
           </div>
         </div>
       </div>
+
+      <VncLogPanel t={t} />
     </div>
   );
 }

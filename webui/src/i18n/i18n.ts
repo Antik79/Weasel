@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import en from './en.json';
+import nl from './nl.json';
+import fr from './fr.json';
+import de from './de.json';
 
 type Translations = typeof en;
 
@@ -17,6 +20,9 @@ const flattenKeys = (obj: any, prefix = ''): Record<string, string> => {
 };
 
 const defaultTranslations = flattenKeys(en);
+const nlTranslations = flattenKeys(nl);
+const frTranslations = flattenKeys(fr);
+const deTranslations = flattenKeys(de);
 
 type ReplacementMap = Record<string, string | number>;
 
@@ -25,10 +31,21 @@ export const useTranslation = () => {
     const [translations, setTranslations] = useState<Record<string, string>>(defaultTranslations);
 
     useEffect(() => {
-        // In a real app, we might fetch other languages here
-        // For now we only have 'en' loaded statically
-        if (language === 'en') {
-            setTranslations(defaultTranslations);
+        switch (language) {
+            case 'en':
+                setTranslations(defaultTranslations);
+                break;
+            case 'nl':
+                setTranslations(nlTranslations);
+                break;
+            case 'fr':
+                setTranslations(frTranslations);
+                break;
+            case 'de':
+                setTranslations(deTranslations);
+                break;
+            default:
+                setTranslations(defaultTranslations);
         }
     }, [language]);
 

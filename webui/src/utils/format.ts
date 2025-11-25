@@ -12,14 +12,14 @@ export function formatDate(value: string) {
 }
 
 /**
- * Normalizes a file path for display by replacing double backslashes with single backslashes
+ * Normalizes a file path for display by replacing multiple backslashes with single backslashes
  * @param path The path to normalize
  * @returns The normalized path with single backslashes
  */
 export function formatPath(path: string): string {
   if (!path) return path;
-  // Replace double backslashes (\\ in string = single backslash) with single backslash
-  // The regex \\\\ matches two literal backslashes in the string
-  return path.replace(/\\\\/g, "\\");
+  // Replace any sequence of 2 or more backslashes with a single backslash
+  // This handles cases where paths are double-escaped (C:\\Users becomes C:\Users)
+  return path.replace(/\\+/g, "\\");
 }
 

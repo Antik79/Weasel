@@ -44,7 +44,10 @@ internal static class Program
         });
 
         // Add WeaselHost services so they're available in the tray context menu
-        builder.Services.AddWeaselHostServices();
+        builder.Services.AddWeaselHostServices(); // Defaults to registerHostedServices: true
+
+        // Add interval screenshot service (only runs in tray app, not web server)
+        builder.Services.AddHostedService<WeaselHost.Infrastructure.Services.IntervalScreenshotService>();
 
         builder.Services.AddSingleton<WebServerManager>();
         builder.Services.AddSingleton<BrowserLauncher>();

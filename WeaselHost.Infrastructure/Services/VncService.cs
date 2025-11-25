@@ -10,6 +10,7 @@ namespace WeaselHost.Infrastructure.Services;
 public sealed class VncService : IVncService, IDisposable
 {
     private readonly ILogger<VncService>? _logger;
+    private readonly ILoggerFactory? _loggerFactory;
     private readonly IOptionsMonitor<WeaselHostOptions> _optionsMonitor;
     private readonly object _lock = new();
     private bool _isRunning;
@@ -24,9 +25,11 @@ public sealed class VncService : IVncService, IDisposable
 
     public VncService(
         IOptionsMonitor<WeaselHostOptions> optionsMonitor,
+        ILoggerFactory? loggerFactory = null,
         ILogger<VncService>? logger = null)
     {
         _optionsMonitor = optionsMonitor;
+        _loggerFactory = loggerFactory;
         _logger = logger;
     }
 
@@ -138,10 +141,10 @@ public sealed class VncService : IVncService, IDisposable
                 _connectionCount++;
             }
 
-            _logger?.LogInformation("VNC client connected from {EndPoint}. Total connections: {Count}", 
+            _logger?.LogInformation("VNC client connected from {EndPoint}. Total connections: {Count}",
                 client.Client.RemoteEndPoint, _connectionCount);
 
-            handler = new VncConnectionHandler(client, _password, _logger);
+            handler = new VncConnectionHandler(client, _password, _loggerFactory, _logger);
             lock (_lock)
             {
                 _connections.Add(handler);
@@ -195,11 +198,41 @@ public sealed class VncService : IVncService, IDisposable
     {
         lock (_lock)
         {
+            // If this instance thinks it's running, trust that
+            if (_isRunning)
+            {
+                return Task.FromResult(new VncStatus(_isRunning, _port, _connectionCount, _allowRemote));
+            }
+
+            // Otherwise, check if another instance started it by checking if the port is listening
+            var config = _optionsMonitor.CurrentValue.Vnc;
+            var portIsListening = IsPortListening(config.Port);
+
             return Task.FromResult(new VncStatus(
-                _isRunning,
-                _port,
-                _connectionCount,
-                _allowRemote));
+                portIsListening,
+                portIsListening ? config.Port : _port,
+                portIsListening ? 0 : _connectionCount, // Can't know connection count from other instance
+                portIsListening ? config.AllowRemote : _allowRemote));
+        }
+    }
+
+    private static bool IsPortListening(int port)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            var result = client.BeginConnect(IPAddress.Loopback, port, null, null);
+            var success = result.AsyncWaitHandle.WaitOne(TimeSpan.FromMilliseconds(100));
+            if (success)
+            {
+                try { client.EndConnect(result); } catch { }
+                return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
         }
     }
 

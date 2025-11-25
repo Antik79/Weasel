@@ -82,6 +82,7 @@ The API is defined in `WeaselHost.Web/Program.cs`. Key groups include:
 - `/api/disk-monitoring`: Storage monitoring and configuration (drives and folders).
 - `/api/application-monitor`: Application monitoring and configuration.
 - `/api/vnc`: VNC server management (start, stop, status, configuration).
+- `/api/terminal`: Terminal session management (create, list, delete, WebSocket endpoint).
 - `/api/logs`: Log file browsing and retrieval (with subfolder support).
 - `/api/settings`: Application configuration (general, capture, logging, VNC, etc.).
 
@@ -100,13 +101,22 @@ Implemented in `VncService.cs` and `VncConnectionHandler.cs`. The VNC server imp
 - WebSocket proxy for web-based clients
 - Auto-start capability on application startup
 
+### Terminal Service
+Implemented in `TerminalService.cs`. Provides PowerShell and CMD terminal access via WebSocket connections. Features include:
+- Multiple concurrent terminal sessions
+- Process-based terminal emulation (PowerShell.exe, cmd.exe)
+- Real-time output streaming via WebSocket
+- Session management (create, list, delete)
+- Automatic cleanup of terminated sessions
+- Support for both interactive commands and scripts
+
 ### Logging
 Implemented via `FileLoggerProvider.cs`. Provides structured logging with:
 - Component-specific log files in subfolders
 - Automatic log rotation (daily and size-based)
 - Archive support for old logs
 - Per-component enable/disable toggles
-- Log files stored in `%APPDATA%\Weasel\Logs\`
+- Log files stored in `.\Logs\`
 
 ### Authentication
 Implemented via middleware in `Program.cs`. If `Security.RequireAuthentication` is true, requests must include the `X-Weasel-Token` header matching the configured password.
@@ -124,6 +134,11 @@ Implemented via middleware in `Program.cs`. If `Security.RequireAuthentication` 
 - **FilePicker**: File selection dialog (`webui/src/components/FilePicker.tsx`)
 - **FolderPicker**: Folder selection dialog (`webui/src/components/FolderPicker.tsx`)
 - **VncViewer**: VNC client component using noVNC (`webui/src/components/VncViewer.tsx`)
+- **TerminalViewer**: Terminal emulator component using xterm.js (`webui/src/components/TerminalViewer.tsx`)
+  - Full terminal emulation with command history
+  - WebSocket-based real-time communication
+  - Support for PowerShell and CMD
+  - Popup mode for separate terminal windows
 
 ### Layout Patterns
 

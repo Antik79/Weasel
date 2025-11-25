@@ -17,6 +17,8 @@ public interface ISettingsStore
     Task SaveLoggingSettingsAsync(LoggingOptions options, CancellationToken cancellationToken = default);
 
     Task SaveVncSettingsAsync(VncOptions options, CancellationToken cancellationToken = default);
+
+    Task SaveUiPreferencesAsync(UiPreferencesOptions options, CancellationToken cancellationToken = default);
 }
 
 

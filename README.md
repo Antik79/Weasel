@@ -6,23 +6,57 @@
 
 Weasel is a Windows-based remote system administration tool that runs as a system tray application. It provides a modern web-based console for managing files, processes, services, system information, and more on Windows machines.
 
-**Version**: 1.0.0-alpha
+**Version**: 1.0.0-alpha (Pre-release)
 
 ## Features
 
-- **System Tray Application**: Runs unobtrusively in the background.
-- **Web-Based Console**: React + TypeScript frontend for a responsive user experience.
-- **File Management**: Browse, upload, download, and manage files with a modern two-panel interface.
-- **Process Management**: View and terminate running processes.
-- **Service Management**: Control Windows services.
-- **System Information**: View real-time system metrics and hardware details.
+### Core Functionality
+- **System Tray Application**: Runs unobtrusively in the background with context menu access.
+- **Web-Based Console**: Modern React + TypeScript frontend for a responsive user experience.
+- **Portable Mode**: Fully portable - stores all data (config, logs, screenshots) in the application directory.
+
+### File & System Management
+- **File Explorer**: Browse, upload, download, edit, and manage files with a modern two-panel interface.
+  - Bulk operations (copy, move, delete, zip)
+  - Integrated Monaco code editor for file editing
+  - Bookmark favorite locations
+  - File search capabilities
+- **Process Management**: View and terminate running processes, add to Application Monitor.
+- **Service Management**: Start, stop, and restart Windows services.
+- **System Information**: View real-time CPU, memory, disk, and network metrics.
 - **Power Control**: Shutdown, restart, or lock the machine remotely.
-- **Package Management**: Install, uninstall, and update applications via `winget` with real-time log tailing.
-- **Storage Monitor**: Automated monitoring and alerting for disk space and folder usage.
-- **Application Monitor**: Monitor and automatically restart applications with detailed logging.
-- **Remote Desktop (VNC)**: Built-in VNC server for remote desktop access with auto-start capability.
-- **Screenshot Capture**: Manual and timed screenshot capture with configurable intervals.
-- **Structured Logging**: Component-specific log files with archive support and granular control.
+
+### Advanced Tools
+- **Terminal Viewer**: PowerShell and CMD terminal access via web interface.
+  - Multiple concurrent sessions
+  - Popup mode for separate terminal windows
+  - Full terminal emulation with xterm.js
+- **Package Management**: Install, uninstall, and update applications via `winget`.
+  - Real-time installation log tailing
+  - Search and browse available packages
+  - View installed applications
+- **Storage Monitor**: Automated disk space and folder size monitoring with email alerts.
+  - Configurable thresholds (over/under)
+  - Drive and folder-level monitoring
+  - SMTP email notifications
+- **Application Monitor**: Monitor and automatically restart applications.
+  - Configurable check intervals and restart delays
+  - Detailed logging with event log integration
+  - Email notifications for application failures
+- **VNC Server**: Built-in VNC server for remote desktop access.
+  - Web-based VNC client (noVNC)
+  - Password authentication
+  - Auto-start on application launch
+  - Configurable port and access control
+- **Screenshot Capture**: Manual and timed screenshot capture.
+  - Configurable capture intervals
+  - Custom filename patterns
+  - Automatic storage in configured directory
+- **Logs Viewer**: Browse and view component-specific logs.
+  - Two-panel interface (folders/files)
+  - Automatic log rotation and archiving
+  - Per-component logging control
+  - Real-time log tailing
 
 ## Architecture
 
@@ -89,14 +123,25 @@ npm run build
 
 ## Configuration
 
-Configuration is loaded from `appsettings.json` and `config/appsettings.json`.
+Configuration is loaded from two locations (latter takes precedence):
+- `appsettings.json` (bundled with application)
+- `config/appsettings.json` (external, user-editable)
 
-Key settings include:
+In **portable mode**, all settings and data are stored relative to the application directory:
+- Configuration: `.\config\appsettings.json`
+- Logs: `.\Logs\`
+- Screenshots: `.\Screenshots\`
+
+### Key Settings
+
 - **Remote Access**: Set `WeaselHost:WebServer:AllowRemote` to `true` to allow external connections.
-- **Security**: Set `WeaselHost:Security:RequireAuthentication` to `true` to require an `X-Weasel-Token` header.
+- **Security**: Set `WeaselHost:Security:RequireAuthentication` to `true` and configure `Password` to require authentication via `X-Weasel-Token` header.
 - **HTTPS**: Configure `CertificatePath` and `CertificatePassword` to enable HTTPS.
-- **VNC Server**: Enable and configure the built-in VNC server for remote desktop access in Settings → VNC. The server can be started/stopped from Tools → VNC.
-- **Logging**: Configure component-specific logging in Settings → Logging. Logs are stored in `%APPDATA%\Weasel\Logs\` with component-specific subfolders.
+- **VNC Server**: Configure in Settings → VNC. Set port, password, auto-start, and remote access options. Start/stop from Tools → VNC or tray icon menu.
+- **Terminal**: Accessible via Tools → Terminal. Supports PowerShell and CMD with multiple concurrent sessions.
+- **Logging**: Configure in Settings → Logging. Set log folder, retention days, and enable/disable per-component logging.
+- **Storage Monitor**: Configure in Tools → Storage Monitor. Set disk space thresholds and folder monitoring rules.
+- **Application Monitor**: Configure in Tools → Application Monitor. Add applications to monitor with auto-restart capabilities.
 
 See the following guides for more detailed information:
 

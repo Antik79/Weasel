@@ -49,14 +49,16 @@ public sealed class TrayApplicationContext : ApplicationContext
         
         // Application Monitor submenu
         var appMonitorMenu = new ToolStripMenuItem("Application Monitor");
-        appMonitorMenu.DropDownItems.Add("Toggle Global", null, async (_, _) => await ToggleApplicationMonitorGlobalAsync());
+        var appMonitorToggle = new ToolStripMenuItem("Global Monitor", null, async (_, _) => await ToggleApplicationMonitorGlobalAsync());
+        appMonitorMenu.DropDownItems.Add(appMonitorToggle);
         appMonitorMenu.DropDownItems.Add(new ToolStripSeparator());
         appMonitorMenu.DropDownItems.Add("Configure Applications...", null, (_, _) => OpenConsoleToTab("tools", "application-monitor"));
         menu.Items.Add(appMonitorMenu);
-        
+
         // Storage Monitor submenu
         var storageMonitorMenu = new ToolStripMenuItem("Storage Monitor");
-        storageMonitorMenu.DropDownItems.Add("Toggle Global", null, async (_, _) => await ToggleStorageMonitorGlobalAsync());
+        var storageMonitorToggle = new ToolStripMenuItem("Global Monitor", null, async (_, _) => await ToggleStorageMonitorGlobalAsync());
+        storageMonitorMenu.DropDownItems.Add(storageMonitorToggle);
         storageMonitorMenu.DropDownItems.Add(new ToolStripSeparator());
         storageMonitorMenu.DropDownItems.Add("Configure Monitors...", null, (_, _) => OpenConsoleToTab("tools", "storage-monitor"));
         menu.Items.Add(storageMonitorMenu);
@@ -66,7 +68,7 @@ public sealed class TrayApplicationContext : ApplicationContext
         var vncToggleItem = new ToolStripMenuItem("Start VNC Server", null, async (_, _) => await ToggleVncServerAsync());
         vncMenuItem.DropDownItems.Add(vncToggleItem);
         vncMenuItem.DropDownItems.Add(new ToolStripSeparator());
-        vncMenuItem.DropDownItems.Add("Configure...", null, (_, _) => OpenConsoleToTab("settings", "remote-desktop"));
+        vncMenuItem.DropDownItems.Add("Configure...", null, (_, _) => OpenConsoleToTab("settings", "vnc"));
         menu.Items.Add(vncMenuItem);
         
         menu.Items.Add(new ToolStripSeparator());
@@ -167,7 +169,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             if (appMonitorGlobalItem != null)
             {
                 appMonitorGlobalItem.Checked = options.ApplicationMonitor.Enabled;
-                appMonitorGlobalItem.Text = options.ApplicationMonitor.Enabled ? "Disable" : "Enable";
+                appMonitorGlobalItem.Text = $"Global Monitor ({(options.ApplicationMonitor.Enabled ? "Enabled" : "Disabled")})";
             }
             
             // Update per-application toggles
@@ -204,7 +206,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             if (storageMonitorGlobalItem != null)
             {
                 storageMonitorGlobalItem.Checked = options.DiskMonitoring.Enabled;
-                storageMonitorGlobalItem.Text = options.DiskMonitoring.Enabled ? "Disable" : "Enable";
+                storageMonitorGlobalItem.Text = $"Global Monitor ({(options.DiskMonitoring.Enabled ? "Enabled" : "Disabled")})";
             }
             
             // Update per-drive/folder toggles

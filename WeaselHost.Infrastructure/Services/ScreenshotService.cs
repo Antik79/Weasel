@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Globalization;
 using System.Windows.Forms;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WeaselHost.Core.Configuration;
 
@@ -10,10 +11,14 @@ namespace WeaselHost.Infrastructure.Services;
 public sealed class ScreenshotService : IScreenshotService
 {
     private readonly IOptionsMonitor<WeaselHostOptions> _options;
+    private readonly ILogger<ScreenshotService> _logger;
 
-    public ScreenshotService(IOptionsMonitor<WeaselHostOptions> options)
+    public ScreenshotService(
+        IOptionsMonitor<WeaselHostOptions> options,
+        ILogger<ScreenshotService> logger)
     {
         _options = options;
+        _logger = logger;
     }
 
     public Task<string> CaptureAsync(CancellationToken cancellationToken = default)
@@ -42,6 +47,10 @@ public sealed class ScreenshotService : IScreenshotService
         using var graphics = Graphics.FromImage(bitmap);
         graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size);
         bitmap.Save(path, ImageFormat.Png);
+
+        bitmap.Save(path, ImageFormat.Png);
+
+        _logger.LogInformation("Screenshot captured manually: {Path}", path);
 
         return Task.FromResult(path);
     }

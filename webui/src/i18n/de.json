@@ -1,0 +1,88 @@
+{
+  "common": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "refresh": "Aktualisieren",
+    "loading": "Laden...",
+    "error": "Fehler",
+    "success": "Erfolg",
+    "browse": "Durchsuchen",
+    "download": "Herunterladen",
+    "view": "Ansehen",
+    "copy": "Kopieren",
+    "cut": "Ausschneiden",
+    "paste": "Einfügen",
+    "rename": "Umbenennen",
+    "newFolder": "Neuer Ordner",
+    "newFile": "Neue Datei",
+    "upload": "Hochladen",
+    "search": "Suchen",
+    "path": "Pfad",
+    "name": "Name",
+    "size": "Größe",
+    "date": "Datum",
+    "actions": "Aktionen"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "general": "Allgemein",
+    "security": "Sicherheit",
+    "mail": "E-Mail",
+    "language": "Sprache",
+    "screenshots": "Bildschirmfotos",
+    "destinationFolder": "Zielordner",
+    "filenamePattern": "Dateinamenmuster",
+    "authentication": "Authentifizierung",
+    "requireAuth": "Authentifizierung erforderlich",
+    "password": "Passwort",
+    "smtpSettings": "SMTP-Einstellungen",
+    "host": "Host",
+    "port": "Port"
+  },
+  "files": {
+    "title": "Dateien",
+    "dropFiles": "Dateien zum Hochladen ablegen",
+    "drives": "Laufwerke",
+    "directories": "Ordner",
+    "files": "Dateien",
+    "empty": "Dieser Ordner ist leer"
+  },
+  "system": {
+    "title": "System",
+    "overview": "Übersicht",
+    "storage": "Speicher",
+    "network": "Netzwerk",
+    "cpu": "CPU",
+    "memory": "Arbeitsspeicher",
+    "uptime": "Betriebszeit"
+  },
+  "tools": {
+    "title": "Werkzeuge",
+    "screenshots": {
+      "title": "Bildschirmfotos",
+      "logTitle": "Bildschirmfoto-Protokoll"
+    },
+    "disk": {
+      "title": "Speichermonitor",
+      "logTitle": "Speichermonitor-Protokoll"
+    },
+    "app": {
+      "title": "Anwendungsmonitor",
+      "logTitle": "Anwendungsmonitor-Protokoll"
+    },
+    "vnc": {
+      "title": "VNC",
+      "logTitle": "VNC-Server-Protokoll"
+    },
+    "terminal": {
+      "title": "Terminal",
+      "logTitle": "Terminal-Protokoll"
+    },
+    "packages": {
+      "title": "Paketverwaltung",
+      "logTitle": "Paketverwaltung-Protokoll"
+    }
+  }
+}

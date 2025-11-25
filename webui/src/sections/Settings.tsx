@@ -7,6 +7,7 @@ import FolderPicker from "../components/FolderPicker";
 import { useTranslation } from "../i18n/i18n";
 import { formatPath, formatBytes } from "../utils/format";
 import { showToast } from "../App";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 const captureFetcher = () => api<CaptureSettings>("/api/settings/capture");
 const securityFetcher = () => api<{ requireAuthentication: boolean; hasPassword: boolean }>("/api/settings/security");
@@ -19,6 +20,43 @@ type SettingsTab = "general" | "security" | "mail" | "logging" | "screenshots" |
 export default function Settings() {
   const { t, language, setLanguage } = useTranslation();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
+
+  // Hash routing support for subtabs
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      // Parse hash format: /settings/subtab
+      const parts = hash.split('/').filter(Boolean);
+      if (parts[0] === 'settings' && parts[1]) {
+        const subtab = parts[1] as SettingsTab;
+        // Validate subtab exists
+        const validSubtabs: SettingsTab[] = ["general", "security", "mail", "logging", "screenshots", "vnc"];
+        if (validSubtabs.includes(subtab)) {
+          setActiveTab(subtab);
+        }
+      }
+    };
+
+    // Handle initial hash on mount
+    handleHashChange();
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Update hash when subtab changes
+  useEffect(() => {
+    const currentHash = window.location.hash.slice(1);
+    const parts = currentHash.split('/').filter(Boolean);
+
+    // Only update if we're on the settings tab and the subtab is different
+    if (parts[0] === 'settings' && parts[1] !== activeTab) {
+      window.location.hash = `/settings/${activeTab}`;
+    }
+  }, [activeTab]);
 
   // General Settings State
   const { data: captureData, mutate: mutateCapture } = useSWR("capture-settings", captureFetcher);
@@ -59,6 +97,19 @@ export default function Settings() {
   const [isSavingSmtp, setIsSavingSmtp] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [testRecipient, setTestRecipient] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant?: "danger" | "warning" | "info";
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => { },
+    variant: "info"
+  });
 
   // Initialize forms
   useEffect(() => {
@@ -271,7 +322,9 @@ export default function Settings() {
                       onChange={(e) => setLanguage(e.target.value)}
                     >
                       <option value="en">English</option>
-                      {/* Add more languages here */}
+                      <option value="de">Deutsch</option>
+                      <option value="fr">Français</option>
+                      <option value="nl">Nederlands</option>
                     </select>
                   </div>
                 </div>
@@ -539,6 +592,15 @@ export default function Settings() {
 
       {/* VNC Settings */}
       {activeTab === "vnc" && <RemoteDesktopSettingsTab />}
+
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+        variant={confirmDialog.variant}
+      />
     </section>
   );
 }
@@ -559,7 +621,8 @@ function LoggingSettingsTab() {
       ApplicationMonitor: true,
       Screenshots: true,
       General: true
-    }
+    },
+    componentLevels: {}
   });
   const [showLoggingPicker, setShowLoggingPicker] = useState(false);
   const [isSavingLogging, setIsSavingLogging] = useState(false);
@@ -574,7 +637,8 @@ function LoggingSettingsTab() {
           ApplicationMonitor: true,
           Screenshots: true,
           General: true
-        }
+        },
+        componentLevels: loggingData.componentLevels || {}
       });
     }
   }, [loggingData]);
@@ -717,7 +781,7 @@ function LoggingSettingsTab() {
           <p className="text-sm text-slate-400">
             Enable or disable logging for specific components. Each component writes to its own log file in a subfolder.
           </p>
-          
+
           <div className="space-y-3">
             {["VNC", "DiskMonitor", "ApplicationMonitor", "Screenshots", "General"].map((component) => (
               <div key={component} className="flex items-center justify-between p-3 bg-slate-900/50 rounded border border-slate-800">
@@ -733,21 +797,45 @@ function LoggingSettingsTab() {
                     {component === "General" && "General application logs"}
                   </p>
                 </div>
-                <input
-                  type="checkbox"
-                  id={`component-${component}`}
-                  className="checkbox"
-                  checked={loggingForm.componentEnabled?.[component] ?? true}
-                  onChange={(e) => {
-                    setLoggingForm({
-                      ...loggingForm,
-                      componentEnabled: {
-                        ...loggingForm.componentEnabled,
-                        [component]: e.target.checked
-                      }
-                    });
-                  }}
-                />
+                <div className="flex items-center gap-4">
+                  <select
+                    className="input-text text-xs py-1 w-24"
+                    value={loggingForm.componentLevels?.[component] || loggingForm.minimumLevel}
+                    onChange={(e) => {
+                      setLoggingForm({
+                        ...loggingForm,
+                        componentLevels: {
+                          ...loggingForm.componentLevels,
+                          [component]: e.target.value
+                        }
+                      });
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <option value="Trace">Trace</option>
+                    <option value="Debug">Debug</option>
+                    <option value="Information">Info</option>
+                    <option value="Warning">Warn</option>
+                    <option value="Error">Error</option>
+                    <option value="Critical">Critical</option>
+                    <option value="None">None</option>
+                  </select>
+                  <input
+                    type="checkbox"
+                    id={`component-${component}`}
+                    className="checkbox"
+                    checked={loggingForm.componentEnabled?.[component] ?? true}
+                    onChange={(e) => {
+                      setLoggingForm({
+                        ...loggingForm,
+                        componentEnabled: {
+                          ...loggingForm.componentEnabled,
+                          [component]: e.target.checked
+                        }
+                      });
+                    }}
+                  />
+                </div>
               </div>
             ))}
           </div>
@@ -804,7 +892,7 @@ function RemoteDesktopSettingsTab() {
       await api("/api/vnc/config", {
         method: "PUT",
         body: JSON.stringify({
-          enabled: vncForm.enabled,
+          enabled: true, // VNC is always enabled, can be started/stopped via tray
           port: vncForm.port,
           allowRemote: vncForm.allowRemote,
           autoStart: vncForm.autoStart,
@@ -834,21 +922,6 @@ function RemoteDesktopSettingsTab() {
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="vnc-enable"
-                className="checkbox"
-                checked={vncForm.enabled}
-                onChange={(e) => setVncForm({ ...vncForm, enabled: e.target.checked })}
-              />
-              <label htmlFor="vnc-enable" className="text-sm text-slate-300 cursor-pointer">
-                {t("settings.remoteDesktop.enable")}
-              </label>
-            </div>
-          </div>
-
           <div>
             <label htmlFor="vnc-port" className="block text-sm text-slate-400 mb-1">{t("settings.remoteDesktop.port")}</label>
             <input
@@ -871,7 +944,7 @@ function RemoteDesktopSettingsTab() {
               onChange={(e) => setVncForm({ ...vncForm, autoStart: e.target.checked })}
             />
             <label htmlFor="vnc-auto-start" className="text-sm text-slate-300 cursor-pointer">
-              Auto-start VNC server when Weasel starts
+              Start automatically
             </label>
           </div>
 

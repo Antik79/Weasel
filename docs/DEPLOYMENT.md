@@ -2,27 +2,28 @@
 
 ## Installation Options
 
-### Option 1: Pre-built Installer (Recommended)
+### Option 1: Pre-built Portable Package (Recommended)
 
-Download the latest release from [GitHub Releases](https://github.com/Antik79/Weasel/releases):
+Download the latest portable ZIP from [GitHub Releases](https://github.com/Antik79/Weasel/releases):
 
-- **MSI Installer**: Double-click to install. Includes automatic startup configuration and uninstaller support.
 - **Portable ZIP**: Extract to any location and run `Weasel.exe`. No installation required.
+  - Includes: Weasel.exe, wwwroot (web UI), config folder, and Resources (tray icon)
+  - All data stored in application directory (fully portable)
+  - Can be run from USB drive or any folder
 
 ### Option 2: Build from Source
 
-## 1. Build the Web UI
-```powershell
-cd webui
-npm install
-npm run build
-```
-The Vite build emits static assets into `WeaselHost.Web/wwwroot`, which are automatically copied into the tray application's output during publish.
+**Note**: The frontend is automatically built during the publish process. No manual `npm run build` step is required.
 
-## 2. Publish the Tray Application
+## 1. Prerequisites
+
+- .NET 8.0 SDK
+- Node.js (for building the frontend)
+
+## 2. Publish the Application
+
 ```powershell
-cd ..
-dotnet publish Weasel.sln `
+dotnet publish WeaselHost/WeaselHost.csproj `
   -c Release `
   -r win-x64 `
   --self-contained true `
@@ -30,71 +31,149 @@ dotnet publish Weasel.sln `
   /p:IncludeNativeLibrariesForSelfExtract=true `
   /p:EnableCompressionInSingleFile=true
 ```
-The resulting payload lives under `WeaselHost\bin\Release\net8.0-windows\win-x64\publish\`.
 
-## 3. Configure Startup
-Pick one of the following so the agent runs after reboot:
-- **Registry Run key**  
-  `reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Weasel /t REG_SZ /d "C:\Path\To\WeaselHost.exe"`
-- **Scheduled task**  
-  `schtasks /Create /SC ONLOGON /TN Weasel /TR "C:\Path\To\WeaselHost.exe" /RL HIGHEST`
+The resulting portable package will be in `WeaselHost\bin\Release\net8.0-windows\win-x64\publish\` and includes:
+- **Weasel.exe** - Single-file executable with embedded .NET runtime
+- **wwwroot/** - Web UI assets (automatically built and included)
+- **config/** - Configuration folder
+- **Resources/** - Application resources (tray icon)
 
-## 4. Network & Security
-- Default binding is `http://127.0.0.1:7780`. To expose beyond localhost, set `WeaselHost:WebServer:AllowRemote=true` in `config\appsettings.json` and choose the desired host.
-- To enforce a shared secret, set `WeaselHost:Security:RequireAuthentication=true` and provide `SharedSecret`. Clients must pass the token via the `X-Weasel-Token` header.
-- Adjust rate limiting with `RequestsPerMinute` and `QueueLimit`.
-- Replace the bundled `favicon.ico` with a signed certificate (`UseHttps=true`) and populate `CertificatePath`/`CertificatePassword` for HTTPS.
+## 3. Portable Mode Configuration
 
-## 5. Remote Desktop (VNC) Configuration
+Weasel operates in **portable mode** by default. All data is stored relative to the application directory:
+
+- **Configuration**: `.\config\appsettings.json`
+- **Logs**: `.\Logs\` (with component-specific subfolders)
+- **Screenshots**: `.\Screenshots\`
+
+This makes Weasel fully portable - you can move the entire folder to another location, USB drive, or computer without losing any settings.
+
+## 4. Configure Startup (Optional)
+
+To run Weasel on Windows startup:
+
+### Option 1: Registry Run Key (Current User)
+```powershell
+reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Weasel /t REG_SZ /d "C:\Path\To\Weasel.exe"
+```
+
+### Option 2: Scheduled Task
+```powershell
+schtasks /Create /SC ONLOGON /TN Weasel /TR "C:\Path\To\Weasel.exe" /RL HIGHEST
+```
+
+## 5. Network & Security
+
+### Basic Configuration
+- **Default binding**: `http://127.0.0.1:7780` (localhost only)
+- **Remote access**: Set `WeaselHost:WebServer:AllowRemote=true` in `config\appsettings.json`
+- **Port configuration**: Change `Port` in the WebServer section if needed
+
+### Authentication
+- **Enable authentication**: Set `WeaselHost:Security:RequireAuthentication=true`
+- **Set password**: Configure `Password` in the Security section
+- **Client access**: Clients must include the `X-Weasel-Token` header with the configured password
+
+### Rate Limiting
+- Adjust `RequestsPerMinute` and `QueueLimit` in the Security section
+- Helps prevent abuse and DoS attacks
+
+### HTTPS Configuration
+- Set `UseHttps=true`
+- Configure `CertificatePath` and `CertificatePassword`
+- Recommended for remote access deployments
+
+## 6. Terminal Configuration
+
+The Terminal feature is enabled by default and accessible at `/api/terminal`:
+- Supports PowerShell and CMD sessions
+- Uses WebSocket for real-time communication
+- No additional configuration required
+- Sessions are automatically cleaned up when closed
+
+## 7. Remote Desktop (VNC) Configuration
 
 Weasel includes a built-in VNC server for remote desktop access:
 
-1. **Enable VNC Server**: 
-   - Navigate to **Settings → Remote Desktop** or **Tools → Remote Desktop**
-   - Check "Enable VNC server"
-   - Configure port (default: 5900)
-   - Set a strong password
+### Configuration Options
+- **Port**: Default 5900, configurable in Settings → VNC
+- **Password**: Required for authentication
+- **Auto-start**: Can start automatically when Weasel starts
+- **Allow Remote**: Enable to allow connections from other computers
 
-2. **Remote Access**:
-   - Enable "Allow remote connections" to allow access from other computers on your network
-   - **Security Warning**: Only enable remote access if you have a strong password and proper firewall configuration
+### Setup Steps
+1. Navigate to **Settings → VNC** in the web interface
+2. Set a strong password for VNC access
+3. Configure the port (default: 5900)
+4. Enable "Start automatically" if desired
+5. Enable "Allow Remote" for network access (local only by default)
+6. Start the server from **Tools → VNC** or the tray icon menu
 
-3. **Connect**:
-   - Use any VNC client (e.g., TightVNC, RealVNC, UltraVNC)
-   - Connect to `your-ip-address:5900` (or your configured port)
-   - Enter the password you set
+### Connecting to VNC
+- **Web-based client**: Use the built-in noVNC client from Tools → VNC
+- **External clients**: Use TightVNC, RealVNC, UltraVNC, or any VNC viewer
+  - Connect to `localhost:5900` (local) or `your-ip-address:5900` (remote)
+  - Enter the configured password when prompted
 
-4. **Configuration File**:
-   - VNC settings are stored in `config\appsettings.json` under `WeaselHost:Vnc`
-   - Settings include: `Enabled`, `Port`, `Password`, `AllowRemote`
-
-**Security Best Practices**:
-- Always use a strong password for VNC access
-- Consider enabling remote access only when needed
-- Configure Windows Firewall to restrict VNC port access if needed
+### Security Best Practices
+- Always use a strong password (minimum 8 characters)
+- Only enable "Allow Remote" when needed
+- Configure Windows Firewall to restrict VNC port access
 - Use HTTPS for the web console when accessing remotely
 
-## 6. Updating
-1. Place the new published folder beside the old install.
-2. Stop the tray icon via the context menu (Exit).
-3. Replace binaries and restart via Start menu or Run key.
+## 8. Updating Weasel
 
-## 7. Optional Hardening
-- Change the default port, enable HTTPS, and configure Windows Firewall rules.
-- Restrict access to the config directory (`config\appsettings.json`) via NTFS ACLs.
-- For managed deployments, use the MSI installer from GitHub Releases which includes proper installation and uninstallation support.
+To update to a new version:
 
-## 8. Automated Builds and Releases
+1. **Download** the latest portable ZIP from GitHub Releases
+2. **Stop Weasel** by right-clicking the tray icon and selecting "Exit"
+3. **Backup** your `config` folder (optional, but recommended)
+4. **Extract** the new version to a temporary location
+5. **Copy** the new `Weasel.exe` and `wwwroot` folder to your installation directory
+6. **Keep** your existing `config` folder (your settings)
+7. **Restart** Weasel by running `Weasel.exe`
 
-The project includes a GitHub Actions workflow (`.github/workflows/build-release.yml`) that automatically:
+**Note**: Your configuration, logs, and screenshots are preserved in the portable folders.
+
+## 9. Optional Hardening
+
+For production or remote deployments:
+
+- **Change default port**: Use a non-standard port to reduce exposure
+- **Enable HTTPS**: Protect traffic with SSL/TLS encryption
+- **Configure Windows Firewall**: Create rules to restrict access to specific IPs
+- **Restrict config access**: Use NTFS ACLs to protect `config\appsettings.json`
+- **Use strong passwords**: For both authentication and VNC access
+- **Enable authentication**: Always require authentication for remote access
+- **Regular updates**: Keep Weasel updated to the latest version
+
+## 10. Automated Builds and Releases
+
+The project includes a GitHub Actions workflow (`.github/workflows/build-release.yml`) that automatically builds and publishes releases.
+
+### Workflow Features
 - Builds the application when a version tag is pushed (e.g., `v1.0.0`)
-- Creates both MSI installer and portable ZIP packages
+- Creates portable ZIP packages with all required components
 - Generates SHA256 checksums for verification
-- Creates a GitHub Release with release notes from `CHANGELOG.md`
+- Creates GitHub Release with release notes from `CHANGELOG.md`
+- Verifies package completeness before publishing
 
-To create a new release:
+### Creating a New Release
 1. Update `CHANGELOG.md` with the new version and changes
-2. Create and push a version tag: `git tag v1.0.0 && git push origin v1.0.0`
-3. The workflow will automatically build and publish the release
+2. Update version numbers in project files (if needed)
+3. Create and push a version tag:
+   ```powershell
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+4. The workflow automatically builds and publishes the release to GitHub
+
+### Package Verification
+The workflow automatically verifies that the portable package includes:
+- Weasel.exe (single-file executable)
+- wwwroot/ (complete web UI)
+- config/ (configuration folder)
+- Resources/ (tray icon)
+- README.txt (portable mode instructions)
 
 

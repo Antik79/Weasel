@@ -16,8 +16,9 @@ public class WeaselHostOptions
     public ApplicationMonitorOptions ApplicationMonitor { get; set; } = new();
     public SmtpOptions Smtp { get; set; } = new();
     public VncOptions Vnc { get; set; } = new();
+    public UiPreferencesOptions UiPreferences { get; set; } = new();
     public string? CertificatePassword { get; set; }
-    
+
     /// <summary>
     /// Application version. Format: Major.Minor.Patch[-prerelease]
     /// </summary>
@@ -106,6 +107,12 @@ public class LoggingOptions
         { "Screenshots", true },
         { "General", true }
     };
+
+    /// <summary>
+    /// Component-specific minimum log levels. Key is the component name.
+    /// If a component is not in the dictionary, it defaults to the global MinimumLevel.
+    /// </summary>
+    public Dictionary<string, LogLevel> ComponentLevels { get; set; } = new();
 }
 
 public class DiskMonitoringOptions

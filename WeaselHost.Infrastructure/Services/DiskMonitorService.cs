@@ -14,6 +14,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
 {
     private readonly IOptionsMonitor<WeaselHostOptions> _optionsMonitor;
     private readonly ILogger<DiskMonitorService> _logger;
+    private readonly IEmailService _emailService;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastAlertSent = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastDriveCheck = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastFolderCheck = new();
@@ -22,10 +23,12 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
 
     public DiskMonitorService(
         IOptionsMonitor<WeaselHostOptions> optionsMonitor,
-        ILogger<DiskMonitorService> logger)
+        ILogger<DiskMonitorService> logger,
+        IEmailService emailService)
     {
         _optionsMonitor = optionsMonitor;
         _logger = logger;
+        _emailService = emailService;
     }
 
     public Task StartAsync(CancellationToken cancellationToken = default)
@@ -219,9 +222,13 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             }
         }
 
-        if (alerts.Count > 0 && options.NotificationRecipients.Count > 0)
+        if (alerts.Count > 0)
         {
-            await SendAlertsAsync(alerts, options, cancellationToken);
+            var recipients = ResolveRecipients(options);
+            if (recipients.Count > 0)
+            {
+                await SendAlertsAsync(alerts, recipients, cancellationToken);
+            }
         }
     }
 
@@ -286,9 +293,13 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             }
         }
 
-        if (alerts.Count > 0 && options.NotificationRecipients.Count > 0)
+        if (alerts.Count > 0)
         {
-            await SendFolderAlertsAsync(alerts, options, cancellationToken);
+            var recipients = ResolveRecipients(options);
+            if (recipients.Count > 0)
+            {
+                await SendFolderAlertsAsync(alerts, recipients, cancellationToken);
+            }
         }
     }
 
@@ -319,26 +330,11 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
 
     private async Task SendAlertsAsync(
         List<(string DriveName, long FreeBytes, double FreePercent)> alerts,
-        DiskMonitoringOptions options,
+        IReadOnlyList<string> recipients,
         CancellationToken cancellationToken)
     {
         try
         {
-            var smtp = _optionsMonitor.CurrentValue.Smtp;
-            if (string.IsNullOrWhiteSpace(smtp.Host) || string.IsNullOrWhiteSpace(smtp.FromAddress))
-            {
-                _logger.LogWarning("SMTP not configured, cannot send disk alerts");
-                return;
-            }
-
-            using var client = new SmtpClient(smtp.Host, smtp.Port)
-            {
-                EnableSsl = smtp.EnableSsl,
-                Credentials = string.IsNullOrWhiteSpace(smtp.Username) || string.IsNullOrWhiteSpace(smtp.Password)
-                    ? null
-                    : new NetworkCredential(smtp.Username, smtp.Password)
-            };
-
             var subject = $"Weasel Disk Alert: Low Disk Space Detected";
             var body = new StringBuilder();
             body.AppendLine($"Low disk space detected on {Environment.MachineName}:");
@@ -353,24 +349,13 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             body.AppendLine();
             body.AppendLine($"Time: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
 
-            using var message = new MailMessage
-            {
-                From = new MailAddress(smtp.FromAddress, smtp.FromName),
-                Subject = subject,
-                Body = body.ToString(),
-                IsBodyHtml = false
-            };
+            await _emailService.SendEmailAsync(
+                subject,
+                body.ToString(),
+                new List<string>(recipients),
+                cancellationToken);
 
-            foreach (var recipient in options.NotificationRecipients)
-            {
-                if (!string.IsNullOrWhiteSpace(recipient))
-                {
-                    message.To.Add(recipient);
-                }
-            }
-
-            await client.SendMailAsync(message, cancellationToken);
-            _logger.LogInformation("Sent disk space alerts to {Count} recipients", options.NotificationRecipients.Count);
+            _logger.LogInformation("Sent disk space alerts to {Count} recipients", recipients.Count);
         }
         catch (Exception ex)
         {
@@ -380,26 +365,11 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
 
     private async Task SendFolderAlertsAsync(
         List<(string Path, long SizeBytes, string ThresholdDirection)> alerts,
-        DiskMonitoringOptions options,
+        IReadOnlyList<string> recipients,
         CancellationToken cancellationToken)
     {
         try
         {
-            var smtp = _optionsMonitor.CurrentValue.Smtp;
-            if (string.IsNullOrWhiteSpace(smtp.Host) || string.IsNullOrWhiteSpace(smtp.FromAddress))
-            {
-                _logger.LogWarning("SMTP not configured, cannot send folder alerts");
-                return;
-            }
-
-            using var client = new SmtpClient(smtp.Host, smtp.Port)
-            {
-                EnableSsl = smtp.EnableSsl,
-                Credentials = string.IsNullOrWhiteSpace(smtp.Username) || string.IsNullOrWhiteSpace(smtp.Password)
-                    ? null
-                    : new NetworkCredential(smtp.Username, smtp.Password)
-            };
-
             // Group alerts by direction for better email formatting
             var overAlerts = alerts.Where(a => a.ThresholdDirection.Equals("Over", StringComparison.OrdinalIgnoreCase)).ToList();
             var underAlerts = alerts.Where(a => a.ThresholdDirection.Equals("Under", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -446,29 +416,34 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
 
             body.AppendLine($"Time: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss}");
 
-            using var message = new MailMessage
-            {
-                From = new MailAddress(smtp.FromAddress, smtp.FromName),
-                Subject = subject.ToString(),
-                Body = body.ToString(),
-                IsBodyHtml = false
-            };
+            await _emailService.SendEmailAsync(
+                subject.ToString(),
+                body.ToString(),
+                new List<string>(recipients),
+                cancellationToken);
 
-            foreach (var recipient in options.NotificationRecipients)
-            {
-                if (!string.IsNullOrWhiteSpace(recipient))
-                {
-                    message.To.Add(recipient);
-                }
-            }
-
-            await client.SendMailAsync(message, cancellationToken);
-            _logger.LogInformation("Sent folder size alerts to {Count} recipients", options.NotificationRecipients.Count);
+            _logger.LogInformation("Sent folder size alerts to {Count} recipients", recipients.Count);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send folder size alerts");
         }
+    }
+
+    private IReadOnlyList<string> ResolveRecipients(DiskMonitoringOptions options)
+    {
+        if (options.NotificationRecipients is { Count: > 0 })
+        {
+            return options.NotificationRecipients;
+        }
+
+        var fallback = _optionsMonitor.CurrentValue.Smtp.FromAddress;
+        if (!string.IsNullOrWhiteSpace(fallback))
+        {
+            return new[] { fallback };
+        }
+
+        return Array.Empty<string>();
     }
 }
 

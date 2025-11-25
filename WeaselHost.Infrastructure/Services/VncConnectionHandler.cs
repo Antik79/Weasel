@@ -94,13 +94,13 @@ public class VncConnectionHandler : IDisposable
         BlueShift = 0
     };
 
-    public VncConnectionHandler(TcpClient client, string? password, ILogger<VncService>? logger)
+    public VncConnectionHandler(TcpClient client, string? password, ILoggerFactory? loggerFactory, ILogger<VncService>? logger)
     {
         _client = client;
         _stream = client.GetStream();
         _password = password;
         _logger = logger;
-        _framebufferSource = new ScreenFramebufferSource();
+        _framebufferSource = new ScreenFramebufferSource(loggerFactory?.CreateLogger<ScreenFramebufferSource>());
     }
 
     public async Task HandleAsync(CancellationToken cancellationToken)
@@ -317,10 +317,6 @@ public class VncConnectionHandler : IDisposable
             await _stream.WriteAsync(initBytes, cancellationToken);
             await _stream.FlushAsync(cancellationToken);
 
-            // Log first bytes of ServerInit for debugging
-            var hexPreview = BitConverter.ToString(initBytes, 0, Math.Min(initBytes.Length, 30));
-            _logger?.LogInformation("VNC ServerInit sent: {Width}x{Height}, name length: {NameLength}, total bytes: {Bytes}, hex: {Hex}...", 
-                screen.Width, screen.Height, nameLength, initBytes.Length, hexPreview);
             _logger?.LogInformation("VNC client authenticated and initialized, entering message loop");
 
             // Main message loop - handle SetPixelFormat, SetEncodings, and FramebufferUpdateRequest
@@ -344,8 +340,7 @@ public class VncConnectionHandler : IDisposable
         {
             try
             {
-                _logger?.LogDebug("Waiting for VNC message from client...");
-                
+
                 // Blocking read - wait for client messages
                 // This will block until data is available or connection is closed
                 var bytesRead = await _stream.ReadAsync(buffer, 0, 1, cancellationToken);
@@ -356,21 +351,17 @@ public class VncConnectionHandler : IDisposable
                 }
 
                 var messageType = buffer[0];
-                _logger?.LogInformation("Received VNC message type: {Type} (0x{TypeHex:X2})", messageType, messageType);
                 
                 switch (messageType)
                 {
                     case 0: // SetPixelFormat
                         await ReadSetPixelFormat(cancellationToken);
-                        _logger?.LogInformation("Processed SetPixelFormat");
                         break;
                     case 2: // SetEncodings
                         await ReadSetEncodings(cancellationToken);
-                        _logger?.LogInformation("Processed SetEncodings");
                         break;
                     case 3: // FramebufferUpdateRequest
                         await HandleFramebufferUpdateRequest(cancellationToken);
-                        _logger?.LogInformation("Processed FramebufferUpdateRequest and sent update");
                         break;
                     case 4: // KeyEvent
                         await ReadKeyEvent(cancellationToken);
@@ -394,9 +385,17 @@ public class VncConnectionHandler : IDisposable
                 _logger?.LogInformation("VNC message loop cancelled");
                 break;
             }
+            catch (IOException ex) when (ex.InnerException is SocketException socketEx &&
+                                          (socketEx.ErrorCode == 10053 || socketEx.ErrorCode == 10054 || socketEx.ErrorCode == 995))
+            {
+                // Connection closed/aborted by client - this is expected during disconnection
+                _logger?.LogDebug("Client disconnected during message loop (socket error {ErrorCode})",
+                    ((SocketException)ex.InnerException).ErrorCode);
+                break;
+            }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Error in VNC message loop");
+                _logger?.LogError(ex, "Unexpected error in VNC message loop");
                 break;
             }
         }
@@ -423,11 +422,12 @@ public class VncConnectionHandler : IDisposable
             GreenShift = buffer[14],
             BlueShift = buffer[15]
         };
-        
-        _logger?.LogInformation("Client pixel format: {BitsPerPixel} bpp, depth {Depth}, big-endian={BigEndian}, true-color={TrueColor}, RGB max: R={RedMax} G={GreenMax} B={BlueMax}, RGB shifts: R={RedShift} G={GreenShift} B={BlueShift}", 
-            _clientPixelFormat.BitsPerPixel, _clientPixelFormat.Depth, _clientPixelFormat.BigEndian, _clientPixelFormat.TrueColor,
-            _clientPixelFormat.RedMax, _clientPixelFormat.GreenMax, _clientPixelFormat.BlueMax,
-            _clientPixelFormat.RedShift, _clientPixelFormat.GreenShift, _clientPixelFormat.BlueShift);
+
+        _logger?.LogInformation("Client pixel format: {BitsPerPixel}bpp, depth={Depth}, R={RedMax}@{RedShift}, G={GreenMax}@{GreenShift}, B={BlueMax}@{BlueShift}, BigEndian={BigEndian}",
+            buffer[3], buffer[4], BitConverter.ToUInt16(buffer.Skip(7).Take(2).Reverse().ToArray(), 0), buffer[13],
+            BitConverter.ToUInt16(buffer.Skip(9).Take(2).Reverse().ToArray(), 0), buffer[14],
+            BitConverter.ToUInt16(buffer.Skip(11).Take(2).Reverse().ToArray(), 0), buffer[15],
+            buffer[5] != 0);
     }
     
     private class PixelFormat
@@ -509,13 +509,6 @@ public class VncConnectionHandler : IDisposable
             
             // Send header first
             var responseArray = response.ToArray();
-            _logger?.LogDebug("Sending framebuffer update header: {HeaderSize} bytes, pixel data: {PixelSize} bytes (expected: {ExpectedSize})", 
-                responseArray.Length, pixelData.Length, expectedPixelDataSize);
-            
-            // Log first few bytes of header for debugging
-            var headerHex = string.Join("-", responseArray.Take(Math.Min(20, responseArray.Length)).Select(b => b.ToString("X2")));
-            _logger?.LogDebug("Framebuffer update header (first 20 bytes): {Hex}", headerHex);
-            
             await _stream.WriteAsync(responseArray, cancellationToken);
             
             // Send pixel data in chunks (64KB at a time)
@@ -529,12 +522,24 @@ public class VncConnectionHandler : IDisposable
             }
             
             await _stream.FlushAsync(cancellationToken);
-            _logger?.LogInformation("Sent framebuffer update: {Width}x{Height}, header: {HeaderSize} bytes, pixel data: {PixelSize} bytes (sent: {Sent})", 
-                screen.Width, screen.Height, responseArray.Length, pixelData.Length, totalSent);
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException socketEx &&
+                                      (socketEx.ErrorCode == 10053 || socketEx.ErrorCode == 10054 || socketEx.ErrorCode == 995))
+        {
+            // Connection closed/aborted by client - this is expected during disconnection
+            _logger?.LogDebug("Client disconnected during framebuffer update (socket error {ErrorCode})",
+                ((SocketException)ex.InnerException).ErrorCode);
+            throw; // Re-throw to exit the message loop
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancellation requested - normal shutdown
+            throw;
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error sending framebuffer update");
+            _logger?.LogError(ex, "Unexpected error sending framebuffer update");
+            throw;
         }
     }
     
@@ -684,7 +689,6 @@ public class VncConnectionHandler : IDisposable
         };
 
         NativeMethods.SendInput(1, new[] { input }, Marshal.SizeOf(typeof(NativeMethods.INPUT)));
-        _logger?.LogDebug("Key event: keysym=0x{Keysym:X8}, vk=0x{Vk:X2}, down={Down}", keysym, vk, downFlag);
     }
 
     private async Task ReadPointerEvent(CancellationToken cancellationToken)
@@ -812,7 +816,6 @@ public class VncConnectionHandler : IDisposable
         }
 
         _lastButtonMask = buttonMask;
-        _logger?.LogDebug("Pointer event: x={X}, y={Y}, buttons=0x{Buttons:X2}", x, y, buttonMask);
     }
 
     private async Task ReadClientCutText(CancellationToken cancellationToken)

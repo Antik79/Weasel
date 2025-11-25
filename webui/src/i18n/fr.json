@@ -1,0 +1,88 @@
+{
+  "common": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "refresh": "Actualiser",
+    "loading": "Chargement...",
+    "error": "Erreur",
+    "success": "Succès",
+    "browse": "Parcourir",
+    "download": "Télécharger",
+    "view": "Afficher",
+    "copy": "Copier",
+    "cut": "Couper",
+    "paste": "Coller",
+    "rename": "Renommer",
+    "newFolder": "Nouveau dossier",
+    "newFile": "Nouveau fichier",
+    "upload": "Téléverser",
+    "search": "Rechercher",
+    "path": "Chemin",
+    "name": "Nom",
+    "size": "Taille",
+    "date": "Date",
+    "actions": "Actions"
+  },
+  "settings": {
+    "title": "Paramètres",
+    "general": "Général",
+    "security": "Sécurité",
+    "mail": "Courriel",
+    "language": "Langue",
+    "screenshots": "Captures d'écran",
+    "destinationFolder": "Dossier de destination",
+    "filenamePattern": "Modèle de nom de fichier",
+    "authentication": "Authentification",
+    "requireAuth": "Exiger l'authentification",
+    "password": "Mot de passe",
+    "smtpSettings": "Paramètres SMTP",
+    "host": "Hôte",
+    "port": "Port"
+  },
+  "files": {
+    "title": "Fichiers",
+    "dropFiles": "Déposer les fichiers pour téléverser",
+    "drives": "Lecteurs",
+    "directories": "Dossiers",
+    "files": "Fichiers",
+    "empty": "Ce dossier est vide"
+  },
+  "system": {
+    "title": "Système",
+    "overview": "Aperçu",
+    "storage": "Stockage",
+    "network": "Réseau",
+    "cpu": "Processeur",
+    "memory": "Mémoire",
+    "uptime": "Temps de fonctionnement"
+  },
+  "tools": {
+    "title": "Outils",
+    "screenshots": {
+      "title": "Captures d'écran",
+      "logTitle": "Journal des captures d'écran"
+    },
+    "disk": {
+      "title": "Moniteur de stockage",
+      "logTitle": "Journal du moniteur de stockage"
+    },
+    "app": {
+      "title": "Moniteur d'application",
+      "logTitle": "Journal du moniteur d'application"
+    },
+    "vnc": {
+      "title": "VNC",
+      "logTitle": "Journal du serveur VNC"
+    },
+    "terminal": {
+      "title": "Terminal",
+      "logTitle": "Journal du terminal"
+    },
+    "packages": {
+      "title": "Gestionnaire de paquets",
+      "logTitle": "Journal du gestionnaire de paquets"
+    }
+  }
+}

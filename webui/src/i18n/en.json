@@ -107,6 +107,8 @@
       "processes": "Processes"
     },
     "screenshots": {
+      "title": "Screenshots",
+      "logTitle": "Screenshot Log",
       "timedTitle": "Timed Screenshots",
       "save": "Save Settings",
       "saving": "Saving…",
@@ -136,10 +138,11 @@
       "loadingEntry": "Loading log…"
     },
     "disk": {
+      "title": "Storage Monitor",
+      "logTitle": "Storage Monitor Log",
       "saveSuccess": "Storage monitoring configuration saved!",
       "saveFailure": "Failed to save storage monitoring configuration: {{message}}",
       "recipientPrompt": "Enter email address",
-      "title": "Disk Space Monitoring",
       "statusActive": "Monitoring active",
       "statusInactive": "Monitoring inactive",
       "statusNever": "Never",
@@ -182,6 +185,8 @@
       "thresholdSummaryUnder": "Send email when folder size is below {{value}}."
     },
     "app": {
+      "title": "Application Monitor",
+      "logTitle": "Application Monitor Log",
       "saveSuccess": "Application monitor configuration saved!",
       "saveFailure": "Failed to save application monitor configuration: {{message}}",
       "recipientPrompt": "Enter notification email address",
@@ -223,6 +228,7 @@
     },
     "vnc": {
       "title": "Remote Desktop (VNC)",
+      "logTitle": "VNC Server Log",
       "statusTitle": "Server Status",
       "enable": "Enable VNC server",
       "port": "Port",
@@ -254,6 +260,14 @@
       "stopSuccess": "VNC server stopped successfully!",
       "stopFailure": "Failed to stop VNC server: {{message}}",
       "loading": "Loading VNC configuration..."
+    },
+    "terminal": {
+      "title": "Terminal",
+      "logTitle": "Terminal Log"
+    },
+    "packages": {
+      "title": "Package Manager",
+      "logTitle": "Package Manager Log"
     }
   }
 }

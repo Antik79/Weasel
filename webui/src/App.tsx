@@ -119,6 +119,49 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("system");
   const [authenticated, setAuthenticated] = useState<boolean | null>(null);
   const ActiveComponent = tabConfig[tab].component;
+
+  // Hash routing support - read hash on mount and when hash changes
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1); // Remove #
+      if (!hash) return;
+
+      // Parse hash format: /tab or /tab/subtab
+      const parts = hash.split('/').filter(Boolean);
+      const mainTab = parts[0] as Tab;
+
+      // Validate and set main tab
+      if (mainTab && tabConfig[mainTab]) {
+        setTab(mainTab);
+      }
+    };
+
+    // Handle initial hash on mount
+    handleHashChange();
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // Update hash when tab changes
+  useEffect(() => {
+    // Don't update hash if it already matches the current tab
+    const currentHash = window.location.hash.slice(1);
+    const currentMainTab = currentHash.split('/').filter(Boolean)[0];
+
+    if (currentMainTab !== tab) {
+      // Only update the main tab part, preserve subtab if present
+      const parts = currentHash.split('/').filter(Boolean);
+      if (parts.length > 1) {
+        // Has subtab, update main tab but keep subtab
+        window.location.hash = `/${tab}/${parts.slice(1).join('/')}`;
+      } else {
+        // No subtab, just set main tab
+        window.location.hash = `/${tab}`;
+      }
+    }
+  }, [tab]);
   const content = useMemo(() => {
     // SystemDashboard is not lazy-loaded, render it directly
     if (tab === "system") {

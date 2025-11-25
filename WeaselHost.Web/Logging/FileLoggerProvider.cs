@@ -310,7 +310,7 @@ internal sealed class FileLoggerProvider : ILoggerProvider
         return folder;
     }
 
-    private static string GetSubfolderForCategory(string category)
+    internal static string GetComponentName(string category)
     {
         // Map logger categories to subfolders
         if (category.Contains("VncService", StringComparison.OrdinalIgnoreCase) || 
@@ -331,16 +331,58 @@ internal sealed class FileLoggerProvider : ILoggerProvider
             return "ApplicationMonitor";
         }
         
-        if (category.Contains("ScreenshotService", StringComparison.OrdinalIgnoreCase) || 
+        if (category.Contains("ScreenshotService", StringComparison.OrdinalIgnoreCase) ||
             category.Contains("IntervalScreenshotService", StringComparison.OrdinalIgnoreCase) ||
             category.Contains("Screenshot", StringComparison.OrdinalIgnoreCase))
         {
             return "Screenshots";
         }
-        
+
+        if (category.Contains("TerminalService", StringComparison.OrdinalIgnoreCase) ||
+            category.Contains("Terminal", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Terminal";
+        }
+
+        if (category.Contains("PackageService", StringComparison.OrdinalIgnoreCase) ||
+            category.Contains("Package", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Packages";
+        }
+
+        if (category.Contains("EmailService", StringComparison.OrdinalIgnoreCase) ||
+            category.Contains("Email", StringComparison.OrdinalIgnoreCase))
+        {
+            return "EmailService";
+        }
+
+        if (category.Contains("PackageBundleService", StringComparison.OrdinalIgnoreCase) ||
+            category.Contains("PackageBundle", StringComparison.OrdinalIgnoreCase))
+        {
+            return "PackageBundles";
+        }
+
+        if (category.Contains("SettingsStore", StringComparison.OrdinalIgnoreCase) ||
+            category.Contains("Settings", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Settings";
+        }
+
         // Default to General for other categories
         return "General";
     }
+
+    internal LogLevel GetMinimumLevelForComponent(string componentName)
+    {
+        var options = _optionsMonitor.CurrentValue.Logging;
+        if (options != null && options.ComponentLevels.TryGetValue(componentName, out var level))
+        {
+            return level;
+        }
+        return GetMinimumLevel();
+    }
+
+    private static string GetSubfolderForCategory(string category) => GetComponentName(category);
 
     private static void PruneOldFiles(string baseFolder, int retentionDays)
     {
@@ -420,7 +462,11 @@ internal sealed class FileLoggerProvider : ILoggerProvider
 
         public IDisposable BeginScope<TState>(TState state) where TState : notnull => NoopScope.Instance;
 
-        public bool IsEnabled(LogLevel logLevel) => logLevel >= _provider.GetMinimumLevel();
+        public bool IsEnabled(LogLevel logLevel)
+        {
+            var component = FileLoggerProvider.GetComponentName(_category);
+            return logLevel >= _provider.GetMinimumLevelForComponent(component);
+        }
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {

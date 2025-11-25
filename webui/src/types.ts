@@ -149,6 +149,7 @@ export interface LoggingConfig {
   folder: string;
   retentionDays: number;
   componentEnabled: Record<string, boolean>;
+  componentLevels?: Record<string, string>;
   minimumLevel: string; // "Trace", "Debug", "Information", "Warning", "Error", "Critical", "None"
   maxFileSizeBytes: number;
   maxFilesPerDay: number;

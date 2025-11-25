@@ -188,3 +188,19 @@ export async function closeTerminal(id: string): Promise<void> {
   });
 }
 
+// UI Preferences API functions
+export interface UiPreferences {
+  logPanelExpanded: Record<string, boolean>;
+}
+
+export async function getUiPreferences(): Promise<UiPreferences> {
+  return api<UiPreferences>("/api/settings/ui-preferences");
+}
+
+export async function saveUiPreferences(preferences: UiPreferences): Promise<UiPreferences> {
+  return api<UiPreferences>("/api/settings/ui-preferences", {
+    method: "PUT",
+    body: JSON.stringify(preferences)
+  });
+}
+

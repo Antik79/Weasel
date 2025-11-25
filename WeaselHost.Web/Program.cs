@@ -8,6 +8,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WeaselHost.Core.Abstractions;
@@ -42,22 +43,29 @@ public static class Program
         configureBuilder?.Invoke(builder);
 
         builder.Services.Configure<WeaselHostOptions>(builder.Configuration.GetSection("WeaselHost"));
-        builder.Services.AddWeaselHostServices();
-        builder.Services.AddHostedService<IntervalScreenshotService>();
+        // Don't register hosted services in the web server - only the tray app should run monitoring services
+        builder.Services.AddWeaselHostServices(registerHostedServices: false);
 
-        // Configure JSON serialization to use camelCase
+        // Configure JSON serialization to use camelCase and handle enums as strings
         builder.Services.ConfigureHttpJsonOptions(options =>
         {
             options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+            options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
         });
 
         // Also configure for minimal APIs
         builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(options =>
         {
             options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+            options.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
         });
 
         builder.Services.AddCors();
+
+        // Configure minimum log level from configuration before building the app
+        var options = new WeaselHostOptions();
+        builder.Configuration.GetSection("WeaselHost").Bind(options);
+        builder.Logging.SetMinimumLevel(options.Logging.MinimumLevel);
 
         var app = builder.Build();
         
@@ -606,6 +614,17 @@ public static class Program
             // Wait a bit for config to reload
             await Task.Delay(500, cancellationToken);
             return Results.Ok(optionsMonitor.CurrentValue.Logging);
+        });
+
+        group.MapGet("/ui-preferences", (IOptionsMonitor<WeaselHostOptions> options) =>
+            Results.Ok(options.CurrentValue.UiPreferences));
+
+        group.MapPut("/ui-preferences", async (UiPreferencesOptions request, ISettingsStore settingsStore, IOptionsMonitor<WeaselHostOptions> optionsMonitor, CancellationToken cancellationToken) =>
+        {
+            await settingsStore.SaveUiPreferencesAsync(request, cancellationToken);
+            // Wait a bit for config to reload
+            await Task.Delay(500, cancellationToken);
+            return Results.Ok(optionsMonitor.CurrentValue.UiPreferences);
         });
     }
 
@@ -1213,16 +1232,7 @@ public static class Program
                                 cancellationToken);
                             totalBytesSent += bytesRead;
 
-                            // Log first few messages for debugging
-                            if (totalBytesSent <= 200)
-                            {
-                                logger.LogInformation("Forwarded {Bytes} bytes from VNC to WebSocket (total: {Total}). First bytes: {Hex}",
-                                    bytesRead, totalBytesSent, BitConverter.ToString(buffer.Take(Math.Min(bytesRead, 20)).ToArray()));
-                            }
-                            else if (bytesRead > 10000)
-                            {
-                                logger.LogDebug("Forwarded {Bytes} bytes from VNC to WebSocket (total: {Total})", bytesRead, totalBytesSent);
-                            }
+
                         }
                     }
                     logger.LogInformation("VNC to WebSocket proxy ended. Total bytes sent: {Total}", totalBytesSent);
@@ -1231,9 +1241,16 @@ public static class Program
                 {
                     logger.LogInformation("VNC read operation cancelled");
                 }
+                catch (IOException ex) when (ex.InnerException is SocketException socketEx &&
+                                              (socketEx.ErrorCode == 10053 || socketEx.ErrorCode == 10054 || socketEx.ErrorCode == 995))
+                {
+                    // Connection closed/aborted - this is expected during disconnection
+                    logger.LogDebug("VNC connection closed during proxy (socket error {ErrorCode})",
+                        ((SocketException)ex.InnerException).ErrorCode);
+                }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Error receiving from VNC server");
+                    logger.LogError(ex, "Unexpected error receiving from VNC server");
                 }
             }, cancellationToken);
 
@@ -1256,16 +1273,7 @@ public static class Program
                         if (vncClient.Connected)
                         {
                             totalBytesReceived += result.Count;
-                            // Log first few messages in detail for debugging
-                            if (totalBytesReceived <= 200)
-                            {
-                                logger.LogInformation("Forwarding {Bytes} bytes from WebSocket client to VNC server (total: {Total}). First bytes: {Hex}", 
-                                    result.Count, totalBytesReceived, BitConverter.ToString(buffer, 0, Math.Min(result.Count, 20)));
-                            }
-                            else
-                            {
-                                logger.LogDebug("Forwarding {Bytes} bytes from WebSocket client to VNC server (total: {Total})", result.Count, totalBytesReceived);
-                            }
+
                             await vncStream!.WriteAsync(new ArraySegment<byte>(buffer, 0, result.Count), cancellationToken);
                             await vncStream.FlushAsync(cancellationToken);
                         }
@@ -1276,9 +1284,21 @@ public static class Program
                 {
                     logger.LogInformation("WebSocket read operation cancelled");
                 }
+                catch (WebSocketException ex) when (ex.WebSocketErrorCode == WebSocketError.ConnectionClosedPrematurely)
+                {
+                    // WebSocket closed unexpectedly - this is expected during disconnection
+                    logger.LogDebug("WebSocket closed prematurely during proxy");
+                }
+                catch (IOException ex) when (ex.InnerException is SocketException socketEx &&
+                                              (socketEx.ErrorCode == 10053 || socketEx.ErrorCode == 10054 || socketEx.ErrorCode == 995))
+                {
+                    // Connection closed/aborted - this is expected during disconnection
+                    logger.LogDebug("WebSocket connection closed during proxy (socket error {ErrorCode})",
+                        ((SocketException)ex.InnerException).ErrorCode);
+                }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "Error receiving from WebSocket client");
+                    logger.LogError(ex, "Unexpected error receiving from WebSocket client");
                 }
             }, cancellationToken);
 

@@ -1,0 +1,88 @@
+{
+  "common": {
+    "save": "Opslaan",
+    "cancel": "Annuleren",
+    "delete": "Verwijderen",
+    "edit": "Bewerken",
+    "refresh": "Vernieuwen",
+    "loading": "Laden...",
+    "error": "Fout",
+    "success": "Succes",
+    "browse": "Bladeren",
+    "download": "Downloaden",
+    "view": "Bekijken",
+    "copy": "Kopiëren",
+    "cut": "Knippen",
+    "paste": "Plakken",
+    "rename": "Hernoemen",
+    "newFolder": "Nieuwe map",
+    "newFile": "Nieuw bestand",
+    "upload": "Uploaden",
+    "search": "Zoeken",
+    "path": "Pad",
+    "name": "Naam",
+    "size": "Grootte",
+    "date": "Datum",
+    "actions": "Acties"
+  },
+  "settings": {
+    "title": "Instellingen",
+    "general": "Algemeen",
+    "security": "Beveiliging",
+    "mail": "E-mail",
+    "language": "Taal",
+    "screenshots": "Screenshots",
+    "destinationFolder": "Doelmap",
+    "filenamePattern": "Bestandsnaampatroon",
+    "authentication": "Authenticatie",
+    "requireAuth": "Authenticatie vereisen",
+    "password": "Wachtwoord",
+    "smtpSettings": "SMTP-instellingen",
+    "host": "Host",
+    "port": "Poort"
+  },
+  "files": {
+    "title": "Bestanden",
+    "dropFiles": "Sleep bestanden om te uploaden",
+    "drives": "Schijven",
+    "directories": "Mappen",
+    "files": "Bestanden",
+    "empty": "Deze map is leeg"
+  },
+  "system": {
+    "title": "Systeem",
+    "overview": "Overzicht",
+    "storage": "Opslag",
+    "network": "Netwerk",
+    "cpu": "CPU",
+    "memory": "Geheugen",
+    "uptime": "Uptime"
+  },
+  "tools": {
+    "title": "Hulpmiddelen",
+    "screenshots": {
+      "title": "Screenshots",
+      "logTitle": "Screenshots logboek"
+    },
+    "disk": {
+      "title": "Opslagmonitor",
+      "logTitle": "Opslagmonitor logboek"
+    },
+    "app": {
+      "title": "Applicatiemonitor",
+      "logTitle": "Applicatiemonitor logboek"
+    },
+    "vnc": {
+      "title": "VNC",
+      "logTitle": "VNC-server logboek"
+    },
+    "terminal": {
+      "title": "Terminal",
+      "logTitle": "Terminal logboek"
+    },
+    "packages": {
+      "title": "Pakketbeheer",
+      "logTitle": "Pakketbeheer logboek"
+    }
+  }
+}
