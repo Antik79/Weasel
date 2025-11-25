@@ -39,7 +39,7 @@ jobs:
       run: |
         if ($env:GITHUB_REF -match 'refs/tags/v(.+)') {
           $version = $matches[1]
-        } elseif (${{ github.event.inputs.version }}) {
+        } elseif ("${{ github.event.inputs.version }}" -ne "") {
           $version = "${{ github.event.inputs.version }}"
         } else {
           $version = "0.0.0-dev"
