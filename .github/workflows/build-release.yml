@@ -147,69 +147,37 @@ jobs:
         Write-Host ""
 
         # Create README for portable version
-        $readmeContent = @"
-# Weasel Portable $env:VERSION
+        $readmePath = "portable/Weasel-$env:VERSION/README.txt"
 
-Weasel is a Windows-based remote system administration tool with a web-based console for managing files, processes, services, and more.
-
-## Package Contents
-
-This portable package includes:
-- Weasel.exe - Main tray application with embedded web server
-- wwwroot/ - Web UI (React-based console)
-- config/ - Configuration files
-- Resources/ - Application resources (tray icon)
-
-## Quick Start
-
-1. Extract this ZIP file to your desired location
-2. Run Weasel.exe
-3. Look for the Weasel icon in your system tray
-4. Right-click the tray icon and select Open Dashboard
-   - Or manually navigate to http://localhost:7780
-
-## Portable Mode
-
-This version stores all data in the application directory:
-- Configuration: .\config\appsettings.json
-- Logs: .\Logs\
-- Screenshots: .\Screenshots\
-
-This makes Weasel fully portable - just copy the entire folder to another location or USB drive.
-
-## Features
-
-- File Explorer - Browse, upload, download, edit, and manage files
-- Process Manager - View and terminate running processes
-- Service Manager - Control Windows services
-- System Dashboard - Monitor CPU, memory, disk, and network usage
-- Power Controls - Shutdown, restart, or lock the system
-- Package Manager - Install/uninstall applications via winget
-- VNC Server - Built-in VNC server for remote desktop access
-- Terminal - PowerShell and CMD terminal access
-- Screenshots - Capture and view system screenshots
-- Logs Viewer - View application and system logs
-- Settings - Configure security, monitoring, and notifications
-
-## Startup Options
-
-To run Weasel on Windows startup:
-
-Option 1 - Registry (Current User):
-  reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v Weasel /t REG_SZ /d "%CD%\Weasel.exe"
-
-Option 2 - Scheduled Task:
-  schtasks /Create /SC ONLOGON /TN Weasel /TR "%CD%\Weasel.exe" /RL HIGHEST
-
-## Updating
-
-1. Stop Weasel (right-click tray icon > Exit)
-2. Replace the old files with new ones
-3. Restart Weasel
-
-For more information, visit: https://github.com/Antik79/Weasel
-"@
-        $readmeContent | Out-File -FilePath "portable/Weasel-$env:VERSION/README.txt" -Encoding UTF8
+        "# Weasel Portable $env:VERSION" | Out-File -FilePath $readmePath -Encoding UTF8
+        "" | Add-Content -Path $readmePath
+        "Weasel is a Windows-based remote system administration tool with a web-based console" | Add-Content -Path $readmePath
+        "for managing files, processes, services, and more." | Add-Content -Path $readmePath
+        "" | Add-Content -Path $readmePath
+        "## Package Contents" | Add-Content -Path $readmePath
+        "" | Add-Content -Path $readmePath
+        "This portable package includes:" | Add-Content -Path $readmePath
+        "- Weasel.exe - Main tray application with embedded web server" | Add-Content -Path $readmePath
+        "- wwwroot/ - Web UI (React-based console)" | Add-Content -Path $readmePath
+        "- config/ - Configuration files" | Add-Content -Path $readmePath
+        "- Resources/ - Application resources (tray icon)" | Add-Content -Path $readmePath
+        "" | Add-Content -Path $readmePath
+        "## Quick Start" | Add-Content -Path $readmePath
+        "" | Add-Content -Path $readmePath
+        "1. Extract this ZIP file to your desired location" | Add-Content -Path $readmePath
+        "2. Run Weasel.exe" | Add-Content -Path $readmePath
+        "3. Look for the Weasel icon in your system tray" | Add-Content -Path $readmePath
+        "4. Right-click the tray icon and select Open Dashboard" | Add-Content -Path $readmePath
+        "   - Or manually navigate to http://localhost:7780" | Add-Content -Path $readmePath
+        "" | Add-Content -Path $readmePath
+        "## Features" | Add-Content -Path $readmePath
+        "" | Add-Content -Path $readmePath
+        "- File Explorer, Process Manager, Service Manager" | Add-Content -Path $readmePath
+        "- System Dashboard, Power Controls, Package Manager" | Add-Content -Path $readmePath
+        "- VNC Server, Terminal Access, Screenshots" | Add-Content -Path $readmePath
+        "- Logs Viewer, Disk Monitoring, Application Monitoring" | Add-Content -Path $readmePath
+        "" | Add-Content -Path $readmePath
+        "For more information, visit: https://github.com/Antik79/Weasel" | Add-Content -Path $readmePath
         
         # Create ZIP
         Compress-Archive -Path "portable/Weasel-$env:VERSION/*" -DestinationPath "artifacts/$zipName" -Force
