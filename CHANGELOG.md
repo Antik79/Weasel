@@ -5,7 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0-alpha] - 2025-01-23
+## [1.0.0-beta] - 2024-11-25
+
+This beta release includes critical VNC fixes and new UI customization features.
+
+### Added
+- **UI Preferences System**: Configurable log panel expansion states
+  - All log panels default to collapsed for cleaner UI
+  - Expansion state automatically saved and synced across devices
+  - Backend storage in `config/appsettings.json`
+  - Covers all 6 log panels: Screenshots, Terminal, VNC, DiskMonitor, ApplicationMonitor, Packages
+- **Multilingual Support**: Added German (de), French (fr), and Dutch (nl) translations
+  - Language switcher in UI header
+  - Full translation coverage for all sections
+
+### Fixed
+- **VNC Color Rendering**: Fixed blueish hue bug when using external VNC clients (RealVNC)
+  - Added missing RedShift assignment in pixel format parsing
+  - Proper color channel mapping for different client pixel formats
+  - Added comprehensive pixel format logging
+- **VNC Screen Capture**: Improved error handling for Graphics.CopyFromScreen failures
+  - Graceful handling of Win32Exception during desktop lock/unlock
+  - Fallback mechanism using cached framebuffer
+  - Screen capture remains stable during session transitions
+- **VNC Logging**: Reduced log noise from normal disconnection events
+  - Network errors now log at Debug level instead of Error
+  - WebSocket proxy errors properly categorized
+  - Only unexpected errors logged at Error level
+
+### Changed
+- **LogPanel Component**: Consolidated duplicate implementations into shared component
+  - Single source of truth in `/components/LogPanel.tsx`
+  - Reduced code duplication between Tools.tsx and PackageManager.tsx
+  - Better maintainability and consistency
+
+## [1.0.0-alpha] - 2024-11-23
 
 This is the first pre-release of Weasel, a comprehensive Windows remote administration tool with a modern web-based interface.
 
