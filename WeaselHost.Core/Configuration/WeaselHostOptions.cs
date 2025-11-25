@@ -22,7 +22,7 @@ public class WeaselHostOptions
     /// <summary>
     /// Application version. Format: Major.Minor.Patch[-prerelease]
     /// </summary>
-    public string Version { get; set; } = "1.0.0-alpha";
+    public string Version { get; set; } = "1.0.0-beta";
 }
 
 public class WebServerOptions

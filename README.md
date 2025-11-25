@@ -6,7 +6,7 @@
 
 Weasel is a Windows-based remote system administration tool that runs as a system tray application. It provides a modern web-based console for managing files, processes, services, system information, and more on Windows machines.
 
-**Version**: 1.0.0-alpha (Pre-release)
+**Version**: 1.0.0-beta (Pre-release)
 
 ## Features
 
