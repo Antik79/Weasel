@@ -44,7 +44,7 @@ jobs:
         } else {
           $version = "0.0.0-dev"
         }
-        Write-Host "VERSION=$version" >> $env:GITHUB_ENV
+        "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         Write-Host "Version: $version"
 
     - name: Install dependencies
