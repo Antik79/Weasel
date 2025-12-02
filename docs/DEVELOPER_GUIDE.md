@@ -79,6 +79,7 @@ The API is defined in `WeaselHost.Web/Program.cs`. Key groups include:
 - `/api/services`: Windows service management.
 - `/api/power`: Power control (shutdown, restart, lock).
 - `/api/packages`: Winget package management (install, uninstall, search, show).
+- `/api/packages/bundles`: Package bundle management (CRUD operations, install bundles).
 - `/api/disk-monitoring`: Storage monitoring and configuration (drives and folders).
 - `/api/application-monitor`: Application monitoring and configuration.
 - `/api/vnc`: VNC server management (start, stop, status, configuration).
@@ -94,12 +95,32 @@ Implemented in `DiskMonitorService.cs`. It runs as a hosted service (`IHostedSer
 ### Application Monitor
 Implemented in `ApplicationMonitorService.cs`. It runs as a hosted service, periodically checking if monitored applications are running. If an application is not running, it automatically restarts it after a configured delay. It includes detailed logging with event log entries.
 
-### VNC Server
-Implemented in `VncService.cs` and `VncConnectionHandler.cs`. The VNC server implements the RFB protocol for remote desktop access. It includes:
+### VNC Server & Client
+Implemented in `VncService.cs`, `VncConnectionHandler.cs`, and `VncRecordingService.cs`. The VNC system includes both a server and web-based client:
+
+**VNC Server** (`VncService.cs`):
+- Implements RFB protocol for remote desktop access
 - Password authentication using DES encryption
 - Pixel format conversion for different client formats
-- WebSocket proxy for web-based clients
+- Screen capture and framebuffer management
+- Keyboard and mouse input handling
 - Auto-start capability on application startup
+
+**VNC Client** (React + noVNC):
+- Web-based VNC client using noVNC library
+- Multiple server profile support (internal Weasel server + external VNC servers)
+- Profile management with custom connection settings
+- WebSocket proxy for bridging browser to TCP VNC servers (`/api/vnc/ws`)
+- Full keyboard/mouse support including Ctrl+Alt+Delete
+- Screenshot capture from active sessions
+
+**VNC Recording** (`VncRecordingService.cs`):
+- Session recording to WebM format
+- Motion detection with configurable pause delay (default: 10 seconds)
+- Profile-specific recording subfolders
+- Automatic recording stop on max duration or disconnect
+- Recording metadata and file size tracking
+- Chunk-based upload for real-time recording
 
 ### Terminal Service
 Implemented in `TerminalService.cs`. Provides PowerShell and CMD terminal access via WebSocket connections. Features include:
@@ -116,7 +137,14 @@ Implemented via `FileLoggerProvider.cs`. Provides structured logging with:
 - Automatic log rotation (daily and size-based)
 - Archive support for old logs
 - Per-component enable/disable toggles
+- Per-component minimum log level configuration
 - Log files stored in `.\Logs\`
+- Comprehensive logging in all service implementations:
+  - **FileSystemService**: All file operations (read, write, delete, copy, move, zip)
+  - **PackageService**: Install/uninstall operations with success/failure tracking
+  - **PackageBundleService**: All CRUD operations on bundles
+  - **ScreenshotService**: Screenshot capture with destination path logging
+  - **IntervalScreenshotService**: Timed screenshot capture to TimedFolder
 
 ### Authentication
 Implemented via middleware in `Program.cs`. If `Security.RequireAuthentication` is true, requests must include the `X-Weasel-Token` header matching the configured password.
@@ -139,6 +167,14 @@ Implemented via middleware in `Program.cs`. If `Security.RequireAuthentication` 
   - WebSocket-based real-time communication
   - Support for PowerShell and CMD
   - Popup mode for separate terminal windows
+- **LogPanel**: Shared log panel component (`webui/src/components/LogPanel.tsx`)
+  - Collapsible log display with expansion state persistence
+  - Auto-refresh capability with configurable intervals
+  - Component-specific log display
+- **Pagination**: Reusable pagination component for large data sets (`webui/src/sections/PackageManager.tsx`)
+  - Auto-hides when only one page
+  - Shows current page, total pages, and item count
+  - Previous/Next navigation
 
 ### Layout Patterns
 

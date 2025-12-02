@@ -32,9 +32,12 @@ Weasel is a Windows-based remote system administration tool that runs as a syste
   - Popup mode for separate terminal windows
   - Full terminal emulation with xterm.js
 - **Package Management**: Install, uninstall, and update applications via `winget`.
-  - Real-time installation log tailing
   - Search and browse available packages
   - View installed applications
+  - Real-time installation log tailing
+  - Package bundles for batch installations
+  - Bundle management (create, rename, export/import)
+  - Selective package installation from bundles
 - **Storage Monitor**: Automated disk space and folder size monitoring with email alerts.
   - Configurable thresholds (over/under)
   - Drive and folder-level monitoring
@@ -43,11 +46,15 @@ Weasel is a Windows-based remote system administration tool that runs as a syste
   - Configurable check intervals and restart delays
   - Detailed logging with event log integration
   - Email notifications for application failures
-- **VNC Server**: Built-in VNC server for remote desktop access.
-  - Web-based VNC client (noVNC)
-  - Password authentication
+- **VNC Server & Client**: Built-in VNC server and web-based VNC client for remote desktop access.
+  - Integrated VNC server with password authentication
+  - Web-based VNC client (noVNC) with full keyboard/mouse support
+  - Multiple VNC server profiles (connect to internal or external VNC servers)
+  - VNC session recording with motion detection
+  - Screenshot capture from VNC sessions
   - Auto-start on application launch
   - Configurable port and access control
+  - Send Ctrl+Alt+Delete to remote sessions
 - **Screenshot Capture**: Manual and timed screenshot capture.
   - Configurable capture intervals
   - Custom filename patterns

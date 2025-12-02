@@ -27,6 +27,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IEmailService, EmailService>();
         services.AddSingleton<IDiskMonitorService, DiskMonitorService>();
         services.AddSingleton<IVncService, VncService>();
+        services.AddSingleton<IVncRecordingService, VncRecordingService>();
         services.AddSingleton<ITerminalService, TerminalService>();
 
         // Only register hosted services in the tray application to prevent duplicate execution

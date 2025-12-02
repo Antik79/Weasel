@@ -18,7 +18,11 @@ public interface ISettingsStore
 
     Task SaveVncSettingsAsync(VncOptions options, CancellationToken cancellationToken = default);
 
+    Task SaveVncRecordingSettingsAsync(VncRecordingOptions options, CancellationToken cancellationToken = default);
+
     Task SaveUiPreferencesAsync(UiPreferencesOptions options, CancellationToken cancellationToken = default);
+
+    Task SaveFileExplorerSettingsAsync(FileExplorerOptions options, CancellationToken cancellationToken = default);
 }
 
 

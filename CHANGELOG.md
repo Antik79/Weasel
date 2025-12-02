@@ -5,6 +5,96 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2025-12-02
+
+### Added
+
+- **VNC Recording & Playback**:
+  - Session recording with WebM format support
+  - Motion detection with configurable pause delay (default: 10 seconds)
+  - Smooth recording with delayed pause on inactivity
+  - Profile-specific recording subfolders
+  - Recording management interface
+  - Configurable FPS, quality, and duration limits
+- **VNC Multiple Server Profiles**:
+  - Connect to internal Weasel VNC server or external VNC servers
+  - Save multiple VNC server profiles with custom settings
+  - Profile management (create, edit, rename, delete)
+  - Per-profile connection settings (quality, compression, view-only, shared mode)
+  - Support for VNC repeater connections
+- **VNC Session Features**:
+  - Screenshot capture from active VNC sessions
+  - Send Ctrl+Alt+Delete to remote sessions
+  - Full keyboard and mouse support via noVNC
+  - Configurable recording options per profile
+- **Settings Enhancements** (Phase 1-2):
+  - Language preference now persists to backend configuration (not just localStorage)
+  - Default log panel expansion state toggle in General settings
+  - TimedFolder configuration for separate interval screenshot storage
+  - Component logging for Files operations
+  - Packages pagination size configuration
+- **Package Manager - Bundle Management** (Phase 5):
+  - Create bundles directly from "Add to bundle" dropdowns
+  - Inline bundle creation with selected packages
+  - Bundle rename functionality with inline editing
+  - Enhanced Install All dialog with package selection checkboxes
+  - Enhanced Delete dialog showing all packages in bundle
+  - Selective package installation from bundles
+  - Visual package count indicators
+- **Package Manager UX Improvements** (Phase 4):
+  - Pagination for Installed Packages tab (configurable page size)
+  - Pagination for Search Results tab
+  - Toast notifications now show package names instead of IDs
+  - Confirmation dialog for package uninstall in Installed tab
+  - Auto-reset pagination when filters change
+- **Comprehensive Service Logging** (Phase 3):
+  - FileSystemService: Logging for all file operations (read, write, delete, copy, move, zip)
+  - PackageService: Enhanced logging for install/uninstall operations
+  - PackageBundleService: Logging for all CRUD operations
+  - ScreenshotService: Refactored with destination folder support
+  - IntervalScreenshotService: Integrated TimedFolder configuration
+
+### Fixed
+
+- **VNC Authentication**:
+  - Fixed password encoding issue causing authentication failures with custom VNC profiles
+  - Removed double URL encoding that was corrupting passwords
+  - VNC KeyEvent handling now correctly reads 4-byte key values (fixed IndexOutOfRangeException)
+- **VNC WebSocket Proxy**:
+  - Fixed proxy to support both internal Weasel VNC server and external VNC servers
+  - Added proper host/port parameter handling for external connections
+  - External VNC servers now connect correctly through WebSocket proxy
+- **VNC Recording**:
+  - Fixed recording stop to properly wait for final video chunk upload
+  - Recordings now save correctly to profile-specific subfolders
+  - Motion detection now uses configurable pause delay for smoother recordings
+- **VNC Screenshot**:
+  - Fixed screenshot upload to include required 'path' form field
+  - Screenshots from VNC sessions now save correctly to Screenshots folder
+- **Settings Persistence**:
+  - Component-specific minimum log levels now save correctly
+  - Language selection persists across browser sessions and localStorage clears
+- **Screenshot Services**:
+  - Interval screenshots now save to separate TimedFolder
+  - Screenshot service supports custom destination folders
+
+### Changed
+
+- **VNC Motion Detection**:
+  - Improved motion detection with delayed pause mechanism
+  - Recording now pauses only after sustained inactivity (configurable delay)
+  - Resume is immediate when motion detected
+  - Results in smoother, less choppy recordings
+  - New configuration option: `MotionDetectionPauseDelaySeconds` (default: 10)
+- **Package Manager**:
+  - Bundle creation workflow streamlined with inline inputs
+  - Install All now shows package list with selection options
+  - Delete confirmation shows package contents
+  - All bundle actions provide better feedback
+- **Screenshot Configuration**:
+  - Added TimedFolder setting with fallback to main Folder
+  - IntervalScreenshotService uses dedicated TimedFolder
+
 ## [1.0.0-beta] - 2024-11-25
 
 This beta release includes critical VNC fixes and new UI customization features.

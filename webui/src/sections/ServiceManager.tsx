@@ -4,6 +4,7 @@ import { Play, RotateCcw, Square } from "lucide-react";
 import { api } from "../api/client";
 import { SystemServiceInfo } from "../types";
 import Table, { TableColumn } from "../components/Table";
+import Pagination from "../components/Pagination";
 
 const fetcher = (status: string) =>
   api<SystemServiceInfo[]>(
@@ -14,13 +15,20 @@ export default function ServiceManager() {
   const [statusFilter, setStatusFilter] = useState("");
   const [query, setQuery] = useState("");
 
+  // Pagination state
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('weasel.serviceManager.pageSize');
+    return saved ? parseInt(saved) : 50;
+  });
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
   const { data, isLoading, mutate } = useSWR(
     ["services", statusFilter],
     ([, status]) => fetcher(status),
     { refreshInterval: 10000 }
   );
 
-  const services = useMemo(() => {
+  const filteredServices = useMemo(() => {
     if (!data || !Array.isArray(data)) return [];
     if (!query) return data;
     return data.filter((svc) =>
@@ -29,6 +37,19 @@ export default function ServiceManager() {
         .includes(query.toLowerCase())
     );
   }, [data, query]);
+
+  const paginatedServices = useMemo(() => {
+    if (pageSize === 0) return filteredServices;
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+    return filteredServices.slice(start, end);
+  }, [filteredServices, pageSize, currentPage]);
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1);
+    localStorage.setItem('weasel.serviceManager.pageSize', size.toString());
+  };
 
   const invoke = async (serviceName: string, action: "start" | "stop" | "restart") => {
     await api(`/api/services/${serviceName}/${action}`, { method: "POST" });
@@ -63,7 +84,7 @@ export default function ServiceManager() {
       </div>
 
       <Table
-        data={services}
+        data={paginatedServices}
         columns={[
           {
             key: "displayName",
@@ -124,7 +145,13 @@ export default function ServiceManager() {
         keyExtractor={(svc) => svc.serviceName}
         isLoading={isLoading}
         emptyMessage="No services match your filters."
-        maxHeight="max-h-80"
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalItems={filteredServices.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={handlePageSizeChange}
       />
     </section>
   );

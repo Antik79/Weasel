@@ -24,18 +24,20 @@ import {
   Menu,
   Search as SearchIcon,
   FileEdit,
-  HardDrive
+  HardDrive,
+  Image
 } from "lucide-react";
 
 // Lazy load Monaco Editor - only loads when editing a file
 const Editor = lazy(() => import("@monaco-editor/react"));
-import { api, download, upload } from "../api/client";
+import { api, download, upload, getFileExplorerSettings } from "../api/client";
 import { FileSystemItem } from "../types";
 import { formatBytes, formatDate } from "../utils/format";
 import ContextMenu from "../components/ContextMenu";
 import { useTranslation } from "../i18n/i18n";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { showToast } from "../App";
+import Pagination from "../components/Pagination";
 
 const fetcher = async (path: string) => {
   const url = new URL("/api/fs", window.location.origin);
@@ -118,7 +120,16 @@ const detectLanguage = (filePath: string) => {
   }
 };
 
+const isImageFile = (filePath: string) => {
+  const ext = filePath.split(".").pop()?.toLowerCase();
+  return ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico"].includes(ext || "");
+};
+
 export default function FileExplorer() {
+  // Fetch home folder configuration
+  const { data: fileExplorerConfig } = useSWR("file-explorer-settings", getFileExplorerSettings);
+  const homeFolder = fileExplorerConfig?.homeFolder || "";
+
   const [currentPath, setCurrentPath] = useState("");
   const [editorFile, setEditorFile] = useState<string | null>(null);
   const [editorContent, setEditorContent] = useState("");
@@ -141,6 +152,7 @@ export default function FileExplorer() {
   const [tailFile, setTailFile] = useState<string | null>(null);
   const [tailContent, setTailContent] = useState("");
   const [isTailing, setIsTailing] = useState(false);
+  const [imageViewerFile, setImageViewerFile] = useState<string | null>(null);
 
   // New State for Refactor
   const { t } = useTranslation();
@@ -151,6 +163,18 @@ export default function FileExplorer() {
   });
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; item: FileSystemItem } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
+
+  // Pagination for Folders and Files
+  const [foldersPageSize, setFoldersPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('weasel.files.foldersPageSize');
+    return saved ? parseInt(saved) : 50;
+  });
+  const [foldersPage, setFoldersPage] = useState<number>(1);
+  const [filesPageSize, setFilesPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('weasel.files.filesPageSize');
+    return saved ? parseInt(saved) : 50;
+  });
+  const [filesPage, setFilesPage] = useState<number>(1);
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -241,14 +265,42 @@ export default function FileExplorer() {
     });
   }, [sortConfig]);
 
-  const directories = useMemo(() => sortItems(filteredDirectories), [filteredDirectories, sortItems]);
-  const files = useMemo(() => sortItems(filteredFiles), [filteredFiles, sortItems]);
+  const allSortedDirectories = useMemo(() => sortItems(filteredDirectories), [filteredDirectories, sortItems]);
+  const allSortedFiles = useMemo(() => sortItems(filteredFiles), [filteredFiles, sortItems]);
+
+  // Apply pagination
+  const directories = useMemo(() => {
+    if (foldersPageSize === 0) return allSortedDirectories; // 0 means "All"
+    const start = (foldersPage - 1) * foldersPageSize;
+    const end = start + foldersPageSize;
+    return allSortedDirectories.slice(start, end);
+  }, [allSortedDirectories, foldersPageSize, foldersPage]);
+
+  const files = useMemo(() => {
+    if (filesPageSize === 0) return allSortedFiles; // 0 means "All"
+    const start = (filesPage - 1) * filesPageSize;
+    const end = start + filesPageSize;
+    return allSortedFiles.slice(start, end);
+  }, [allSortedFiles, filesPageSize, filesPage]);
 
   const handleSort = (key: 'name' | 'size' | 'date') => {
     setSortConfig(current => ({
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
     }));
+  };
+
+  // Handle pagination changes
+  const handleFoldersPageSizeChange = (size: number) => {
+    setFoldersPageSize(size);
+    setFoldersPage(1);
+    localStorage.setItem('weasel.files.foldersPageSize', size.toString());
+  };
+
+  const handleFilesPageSizeChange = (size: number) => {
+    setFilesPageSize(size);
+    setFilesPage(1);
+    localStorage.setItem('weasel.files.filesPageSize', size.toString());
   };
 
   const refresh = useCallback(() => mutate(), [mutate]);
@@ -786,6 +838,12 @@ export default function FileExplorer() {
   };
 
   const startTailing = async (filePath: string) => {
+    // Check if it's an image file
+    if (isImageFile(filePath)) {
+      setImageViewerFile(filePath);
+      return;
+    }
+
     setTailFile(filePath);
     setIsTailing(true);
     setTailContent("");
@@ -899,7 +957,7 @@ export default function FileExplorer() {
         <button
           className={`submenu-tab ${!selectedDrive ? "active" : ""}`}
           onClick={() => {
-            setCurrentPath("");
+            setCurrentPath(homeFolder);
             clearSelection();
           }}
         >
@@ -964,10 +1022,10 @@ export default function FileExplorer() {
             <button
               className="text-sm font-medium text-sky-400 hover:text-sky-300 hover:underline flex-shrink-0"
               onClick={() => {
-                setCurrentPath("");
+                setCurrentPath(homeFolder);
                 clearSelection();
               }}
-              title="Go to root"
+              title="Go to home folder"
             >
               Home
             </button>
@@ -1166,6 +1224,13 @@ export default function FileExplorer() {
               </div>
             ))}
           </div>
+          <Pagination
+            currentPage={foldersPage}
+            totalItems={allSortedDirectories.length}
+            pageSize={foldersPageSize}
+            onPageChange={setFoldersPage}
+            onPageSizeChange={handleFoldersPageSizeChange}
+          />
         </div>
 
         {/* Resizer */}
@@ -1210,6 +1275,7 @@ export default function FileExplorer() {
             )}
             {Array.isArray(files) && files.map((file) => {
               const isZip = file.name.toLowerCase().endsWith(".zip");
+              const isImage = isImageFile(file.fullPath);
               return (
                 <div
                   key={file.fullPath}
@@ -1227,6 +1293,8 @@ export default function FileExplorer() {
                     />
                     {isZip ? (
                       <FileArchive size={18} className="text-purple-300 flex-shrink-0" />
+                    ) : isImage ? (
+                      <Image size={18} className="text-green-300 flex-shrink-0" />
                     ) : (
                       <FileText size={18} className="text-sky-300 flex-shrink-0" />
                     )}
@@ -1246,15 +1314,15 @@ export default function FileExplorer() {
                         <FileArchive size={14} />
                       </button>
                     )}
+                    {!isZip && !isImage && (
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startEditing(file); }} title="Edit">
+                        <Pencil size={14} />
+                      </button>
+                    )}
                     {!isZip && (
-                      <>
-                        <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startEditing(file); }} title="Edit">
-                          <Pencil size={14} />
-                        </button>
-                        <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startTailing(file.fullPath); }} title="Tail">
-                          <Eye size={14} />
-                        </button>
-                      </>
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startTailing(file.fullPath); }} title={isImage ? "View" : "Tail"}>
+                        <Eye size={14} />
+                      </button>
                     )}
                     <button className="icon-btn" onClick={(e) => { e.stopPropagation(); renameItem(file); }} title="Rename">
                       <FileEdit size={14} />
@@ -1267,6 +1335,13 @@ export default function FileExplorer() {
               );
             })}
           </div>
+          <Pagination
+            currentPage={filesPage}
+            totalItems={allSortedFiles.length}
+            pageSize={filesPageSize}
+            onPageChange={setFilesPage}
+            onPageSizeChange={handleFilesPageSizeChange}
+          />
         </div>
       </div>
 
@@ -1351,6 +1426,41 @@ export default function FileExplorer() {
           </div>
         </div>
       )}
+
+      {imageViewerFile && (
+        <div className="modal-backdrop" onClick={() => setImageViewerFile(null)}>
+          <div className="modal max-w-4xl" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-[0.2em]">Image Viewer</p>
+                <p className="font-semibold text-white break-all">{imageViewerFile.split("\\").pop()}</p>
+              </div>
+              <div className="flex gap-2">
+                <button className="btn-outline" onClick={() => download(imageViewerFile)}>
+                  <Download size={16} className="mr-1" />
+                  Download
+                </button>
+                <button className="btn-outline" onClick={() => setImageViewerFile(null)}>
+                  Close
+                </button>
+              </div>
+            </div>
+            <div className="modal-body">
+              <div className="flex items-center justify-center bg-slate-900 rounded p-4">
+                <img
+                  src={`/api/fs/download?path=${encodeURIComponent(imageViewerFile)}`}
+                  alt={imageViewerFile.split("\\").pop()}
+                  className="max-w-full max-h-[70vh] object-contain"
+                />
+              </div>
+              <p className="text-xs text-slate-400 mt-2 break-all">
+                {imageViewerFile}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {contextMenu && (
         <ContextMenu
           x={contextMenu.x}

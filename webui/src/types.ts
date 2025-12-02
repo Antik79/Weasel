@@ -128,9 +128,14 @@ export interface SystemServiceInfo {
 
 export interface CaptureSettings {
   folder: string;
+  timedFolder: string;
   filenamePattern: string;
   enableIntervalCapture: boolean;
   intervalSeconds: number;
+}
+
+export interface FileExplorerConfig {
+  homeFolder: string;
 }
 
 export interface LogFileInfo {
@@ -237,6 +242,65 @@ export interface VncStatus {
   port: number;
   connectionCount: number;
   allowRemote: boolean;
+}
+
+export interface VncServerProfile {
+  id: string;
+  name: string;
+  server: string;
+  port: number;
+  viewOnly: boolean;
+  shared: boolean;
+  encrypt: boolean;
+  resize: boolean;
+  quality: number; // 0-9 (0 = best quality, 9 = best compression)
+  compression: number; // 0-9 (0 = no compression, 9 = max compression)
+  repeaterId?: string;
+  password?: string;
+  isDefault?: boolean; // True for the internal Weasel VNC server
+}
+
+export interface VncRecordingOptions {
+  rootFolder: string;
+  maxRecordingDurationMinutes: number;
+  retentionDays: number;
+  enableMotionDetection: boolean;
+  motionDetectionThresholdPercent: number;
+  motionDetectionBlockSize: number;
+  motionDetectionPauseDelaySeconds: number;
+  recordingFps: number;
+  useProfileSubfolders: boolean;
+}
+
+export interface VncRecordingSession {
+  id: string;
+  profileId: string;
+  profileName: string;
+  startedAt: string;
+  stoppedAt?: string | null;
+  outputPath: string;
+  state: "Starting" | "Recording" | "Paused" | "Stopped" | "Error";
+  fileSizeBytes: number;
+  chunksReceived: number;
+  motionDetectionEnabled: boolean;
+  framesRecorded: number;
+  framesSkipped: number;
+}
+
+export interface RecordingMetadata {
+  recordingId: string;
+  profileId: string;
+  profileName: string;
+  startedAt: string;
+  stoppedAt?: string | null;
+  duration: string; // ISO 8601 duration
+  fileSizeBytes: number;
+  filePath: string;
+  codec: string;
+  fps: number;
+  motionDetectionEnabled: boolean;
+  framesRecorded: number;
+  framesSkipped: number;
 }
 
 export interface TerminalSession {

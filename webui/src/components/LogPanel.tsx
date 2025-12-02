@@ -27,8 +27,13 @@ export function LogPanel({ name, title, subfolder }: LogPanelProps) {
   useEffect(() => {
     if (uiPreferences && !initialLoadComplete) {
       const savedState = uiPreferences.logPanelExpanded?.[name];
+      const defaultState = uiPreferences.logPanelExpanded?.['default'] ?? false;
+
       if (savedState !== undefined) {
         setIsExpanded(savedState);
+      } else {
+        // Use default state if no specific state for this panel
+        setIsExpanded(defaultState);
       }
       setInitialLoadComplete(true);
     }

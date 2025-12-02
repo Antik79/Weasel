@@ -32,33 +32,29 @@ export default function ConfirmDialog({
 
   return (
     <div className="modal-backdrop" onClick={onCancel}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${variantStyles[variant]}`}>
-              <AlertTriangle size={20} />
+      <div className="modal max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <div className={`p-1.5 rounded ${variantStyles[variant]}`}>
+              <AlertTriangle size={16} />
             </div>
-            <div>
-              <h3 className="text-lg font-semibold text-white">{title}</h3>
-            </div>
+            <h3 className="text-base font-semibold text-white">{title}</h3>
           </div>
           <button
-            className="icon-btn"
+            className="icon-btn flex-shrink-0"
             onClick={onCancel}
             title="Close"
           >
             <X size={16} />
           </button>
         </div>
-        <div className="modal-body">
-          <p className="text-slate-300">{message}</p>
-        </div>
+        <p className="text-sm text-slate-300 mb-4">{message}</p>
         <div className="flex gap-2 justify-end">
-          <button className="btn-outline" onClick={onCancel}>
+          <button className="btn-outline text-sm" onClick={onCancel}>
             {cancelText}
           </button>
           <button
-            className={`btn-primary ${variant === "danger" ? "bg-red-600 hover:bg-red-700" : ""}`}
+            className={`btn-primary text-sm ${variant === "danger" ? "bg-red-600 hover:bg-red-700" : ""}`}
             onClick={onConfirm}
           >
             {confirmText}

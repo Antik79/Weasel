@@ -35,6 +35,14 @@ This means you can move the entire Weasel folder to another location or USB driv
 
 Weasel creates a configuration file at `config/appsettings.json` relative to the executable. You can edit this file to customize the behavior, or use the Settings page in the web interface.
 
+### General Settings
+
+Navigate to Settings → General to configure:
+
+- **Language**: Choose your preferred language (English, German, French, Dutch). Selection persists to backend configuration.
+- **Log Panel Defaults**: Set whether log panels should be expanded or collapsed by default across all sections.
+- **Packages Page Size**: Configure the number of packages displayed per page in the Package Manager.
+
 ### Enabling Remote Access
 
 By default, Weasel only allows connections from the local machine (`localhost`). To access it from other computers:
@@ -76,17 +84,63 @@ Weasel can monitor your disk space and folder sizes, sending email alerts when t
     - Configure folder monitoring with "Over" or "Under" threshold direction
     - Add email addresses to notification recipients
 
-### VNC Server
+### VNC Server & Client
 
-Weasel includes a built-in VNC server for remote desktop access.
+Weasel includes a built-in VNC server and web-based VNC client for remote desktop access.
 
-1.  **Configure VNC**: Navigate to Settings → VNC:
+#### Built-in VNC Server
+
+1.  **Configure VNC Server**: Navigate to Settings → VNC:
     - Set the port (default: 5900)
     - Set a password for authentication
     - Enable "Allow Remote" if you want external connections
     - Enable "Auto Start" to start the server when Weasel starts
 2.  **Start Server**: Navigate to Tools → VNC and click "Start Server"
-3.  **Connect**: Click "Connect" to open a web-based VNC client, or use any VNC viewer to connect to the configured port
+3.  **Connect**: Use the default VNC profile to connect to the internal server
+
+#### VNC Client with Multiple Profiles
+
+Connect to the internal Weasel VNC server or external VNC servers using saved profiles:
+
+1.  **Default Profile**: Pre-configured profile for connecting to the internal Weasel VNC server
+2.  **Custom Profiles**: Create profiles for external VNC servers:
+    - Click "Add VNC Profile" in Tools → VNC
+    - Enter server details (name, host, port)
+    - Configure connection settings:
+      - **View Only**: Disable mouse/keyboard input
+      - **Shared**: Allow multiple simultaneous connections
+      - **Quality**: 0-9 (0=best quality, 9=best compression)
+      - **Compression**: 0-9 (0=no compression, 9=max compression)
+      - **Password**: Optional, can be prompted on connection
+      - **Repeater ID**: For VNC repeater connections
+3.  **Connect**: Click "Connect" on any profile to open the web-based VNC viewer in a new window
+
+#### VNC Viewer Features
+
+The VNC viewer window provides:
+- **Screenshot**: Capture the current screen and save to Screenshots folder
+- **Ctrl+Alt+Delete**: Send Ctrl+Alt+Delete to the remote session
+- **Record**: Start/stop session recording (if recording is enabled for the profile)
+- **Disconnect**: Close the VNC connection
+
+#### VNC Recording
+
+Record VNC sessions to WebM video files:
+
+1.  **Configure Recording**: Navigate to Settings → VNC → Recording:
+    - **Root Folder**: Where recordings are saved (default: `.\Recordings\`)
+    - **Use Profile Subfolders**: Save recordings in profile-specific folders
+    - **Max Duration**: Maximum recording length in minutes
+    - **Retention Days**: Automatic deletion of old recordings
+    - **Enable Motion Detection**: Pause recording when no activity
+    - **Motion Detection Threshold**: Sensitivity (1-100%)
+    - **Pause Delay**: Seconds of inactivity before pausing (default: 10)
+    - **Recording FPS**: Frames per second for recording
+2.  **Enable for Profile**: Edit a VNC profile and check "Enable Recording"
+3.  **Start Recording**: Click "Record" button during an active VNC session
+4.  **Stop Recording**: Click "Stop" button or disconnect from the session
+
+Recordings are automatically saved with timestamps and can be played back in any WebM-compatible video player.
 
 ### Logging
 
@@ -95,11 +149,25 @@ Weasel provides structured logging with component-specific log files.
 1.  **Configure Logging**: Navigate to Settings → Logging:
     - Set log folder location (default: `%APPDATA%\Weasel\Logs`)
     - Configure retention days and file size limits
-    - Enable/disable logging for specific components (VNC, Application Monitor, Storage Monitor, etc.)
+    - Enable/disable logging for specific components (VNC, Application Monitor, Storage Monitor, Files, Packages, etc.)
+    - Set minimum log levels per component
 2.  **View Logs**: Navigate to Tools → Logs:
     - Browse log folders by component
     - View and download log files
     - Logs are automatically archived when rotated
+    - Control log panel expansion with default state in Settings → General
+
+### Screenshots
+
+Configure screenshot capture options in Settings → Screenshots:
+
+- **Folder**: Main folder for manual screenshots (default: `.\Screenshots\`)
+- **Timed Folder**: Separate folder for interval screenshots (default: fallback to main Folder)
+- **Filename Pattern**: Customize screenshot filename format (e.g., `yyyyMMdd_HHmmss`)
+- **Enable Interval Capture**: Toggle automatic timed screenshots
+- **Interval Seconds**: Set the capture frequency for timed screenshots
+
+This allows you to keep manual screenshots separate from automatically captured ones.
 
 ## Using the Web Interface
 
@@ -121,11 +189,17 @@ To access the Weasel console:
   - Full terminal emulation with command history and auto-completion
   - Real-time output via WebSocket connection
 - **Packages**:
-  - View installed applications
+  - View installed applications with pagination
   - Search and install packages via `winget`
   - Uninstall or update installed packages
   - View installation logs in real-time
-  - Save packages and create bundles
+  - Create and manage package bundles:
+    - Create bundles directly from search results
+    - Add multiple packages to bundles
+    - Rename bundles with inline editing
+    - Export/import bundles for sharing
+    - Install bundles with selective package selection
+    - View package contents before deletion
 - **Application Monitor**: Monitor applications and automatically restart them if they stop. Configure check intervals, restart delays, and view detailed logs with event log integration.
 - **Storage Monitor**: Monitor disk space and folder sizes with configurable thresholds and email alerts.
 - **VNC**: Built-in VNC server for remote desktop access with web-based noVNC client. Configure port, password, and auto-start options.

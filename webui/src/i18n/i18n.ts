@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { getUiPreferences, saveUiPreferences } from '../api/client';
 import en from './en.json';
 import nl from './nl.json';
 import fr from './fr.json';
@@ -27,8 +28,26 @@ const deTranslations = flattenKeys(de);
 type ReplacementMap = Record<string, string | number>;
 
 export const useTranslation = () => {
-    const [language, setLanguage] = useState('en');
+    const [language, setLanguageState] = useState('en');
     const [translations, setTranslations] = useState<Record<string, string>>(defaultTranslations);
+    const [initialLoadComplete, setInitialLoadComplete] = useState(false);
+
+    // Load language from backend on mount
+    useEffect(() => {
+        const loadLanguage = async () => {
+            try {
+                const prefs = await getUiPreferences();
+                if (prefs.language) {
+                    setLanguageState(prefs.language);
+                }
+            } catch (error) {
+                console.error('Failed to load language preference:', error);
+            } finally {
+                setInitialLoadComplete(true);
+            }
+        };
+        loadLanguage();
+    }, []);
 
     useEffect(() => {
         switch (language) {
@@ -48,6 +67,23 @@ export const useTranslation = () => {
                 setTranslations(defaultTranslations);
         }
     }, [language]);
+
+    // Enhanced setLanguage to persist to backend
+    const setLanguage = useCallback(async (newLanguage: string) => {
+        setLanguageState(newLanguage);
+
+        if (initialLoadComplete) {
+            try {
+                const prefs = await getUiPreferences();
+                await saveUiPreferences({
+                    ...prefs,
+                    language: newLanguage
+                });
+            } catch (error) {
+                console.error('Failed to save language preference:', error);
+            }
+        }
+    }, [initialLoadComplete]);
 
     const t = useCallback((key: string, replacements?: ReplacementMap) => {
         let value = translations[key] || key;

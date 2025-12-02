@@ -24,8 +24,10 @@ public sealed class PackageService : IPackageService
 
     public Task<IReadOnlyCollection<InstalledApplication>> GetInstalledApplicationsAsync(CancellationToken cancellationToken = default)
     {
+        _logger?.LogInformation("Reading installed applications from registry");
         var results = new List<InstalledApplication>();
         ReadApplicationsFromRegistry(results);
+        _logger?.LogInformation("Found {Count} installed applications", results.Count);
         return Task.FromResult<IReadOnlyCollection<InstalledApplication>>(results);
     }
 
@@ -51,6 +53,7 @@ public sealed class PackageService : IPackageService
 
             if (result)
             {
+                _logger?.LogInformation("Package installed successfully: {Package}", packageIdentifierOrPath);
                 var message = $"Successfully installed {packageIdentifierOrPath}.";
                 var logHint = Directory.Exists(WingetLogDirectory)
                     ? $" See winget logs under {WingetLogDirectory}."
@@ -59,6 +62,7 @@ public sealed class PackageService : IPackageService
             }
             else
             {
+                _logger?.LogWarning("Package installation failed: {Package}", packageIdentifierOrPath);
                 return new PackageOperationResult(false, -1, $"Failed to install {packageIdentifierOrPath}. See winget logs under {WingetLogDirectory}.");
             }
         }
@@ -96,6 +100,7 @@ public sealed class PackageService : IPackageService
 
             if (result)
             {
+                _logger?.LogInformation("Package uninstalled successfully: {Package}", packageIdentifierOrProductCode);
                 var message = $"Successfully uninstalled {packageIdentifierOrProductCode}.";
                 var logHint = Directory.Exists(WingetLogDirectory)
                     ? $" See winget logs under {WingetLogDirectory}."
@@ -104,6 +109,7 @@ public sealed class PackageService : IPackageService
             }
             else
             {
+                _logger?.LogWarning("Package uninstallation failed: {Package}", packageIdentifierOrProductCode);
                 return new PackageOperationResult(false, -1, $"Failed to uninstall {packageIdentifierOrProductCode}. See winget logs under {WingetLogDirectory}.");
             }
         }
@@ -156,6 +162,7 @@ public sealed class PackageService : IPackageService
 
             if (exactMatch != null)
             {
+                _logger?.LogInformation("Found exact match for package: {Identifier}", identifierOrMoniker);
                 var details = MapToPackageDetails(exactMatch);
                 return new PackageShowResponse(true, null, details, Array.Empty<PackageSearchResult>());
             }
@@ -163,11 +170,13 @@ public sealed class PackageService : IPackageService
             // If multiple matches, return them as alternatives
             if (packages.Count > 1)
             {
+                _logger?.LogInformation("Found {Count} matches for package: {Identifier}", packages.Count, identifierOrMoniker);
                 var alternatives = packages.Select(MapToPackageSearchResult).ToList();
                 return new PackageShowResponse(false, "Multiple packages matched. Please refine your query.", null, alternatives);
             }
 
             // Single match
+            _logger?.LogInformation("Found single match for package: {Identifier}", identifierOrMoniker);
             var singlePackage = packages[0];
             var singleDetails = MapToPackageDetails(singlePackage);
             return new PackageShowResponse(true, null, singleDetails, Array.Empty<PackageSearchResult>());

@@ -1,12 +1,13 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import useSWR from "swr";
-import { Package, RefreshCcw, Search as SearchIcon, Plus, Trash2, Download, Upload, Archive, ChevronDown, ChevronRight } from "lucide-react";
-import { api } from "../api/client";
+import { Package, RefreshCcw, Search as SearchIcon, Plus, Trash2, Download, Upload, Archive, ChevronDown, Edit, Check, X, AlertTriangle } from "lucide-react";
+import { api, getUiPreferences } from "../api/client";
 import { InstalledApplication, PackageOperationResult, PackageSearchResult, PackageBundle, BundlePackage, LogsResponse, LogFileInfo } from "../types";
 import Table, { TableColumn } from "../components/Table";
 import SubmenuNav, { SubmenuItem } from "../components/SubmenuNav";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { LogPanel } from "../components/LogPanel";
+import Pagination from "../components/Pagination";
 import { showToast } from "../App";
 
 const fetcher = (url: string) => api<InstalledApplication[]>(url);
@@ -45,6 +46,28 @@ export default function PackageManager() {
     message: "",
     onConfirm: () => {},
     variant: "info"
+  });
+
+  // Bundle creation in dropdown state
+  const [showBundleInput, setShowBundleInput] = useState(false);
+  const [quickBundleName, setQuickBundleName] = useState("");
+  const [isCreatingQuickBundle, setIsCreatingQuickBundle] = useState(false);
+  const [pendingBundlePackages, setPendingBundlePackages] = useState<PackageSearchResult[]>([]);
+
+  // Bundle rename state
+  const [renamingBundleId, setRenamingBundleId] = useState<string | null>(null);
+  const [renamingBundleName, setRenamingBundleName] = useState("");
+
+  // Pagination state
+  const [installedPage, setInstalledPage] = useState(1);
+  const [searchPage, setSearchPage] = useState(1);
+  const [installedPageSize, setInstalledPageSize] = useState(() => {
+    const saved = localStorage.getItem('weasel.packages.installed.pageSize');
+    return saved ? parseInt(saved) : 50;
+  });
+  const [searchPageSize, setSearchPageSize] = useState(() => {
+    const saved = localStorage.getItem('weasel.packages.search.pageSize');
+    return saved ? parseInt(saved) : 50;
   });
 
   const { data: installedPackages, mutate, isLoading, error } = useSWR("/api/packages", fetcher, {
@@ -110,6 +133,32 @@ export default function PackageManager() {
       pkg.version.toLowerCase().includes(query)
     );
   }, [installedPackages, search]);
+
+  // Paginated installed packages
+  const paginatedInstalled = useMemo(() => {
+    if (installedPageSize === 0) return filtered; // Show all when "All" selected
+    const start = (installedPage - 1) * installedPageSize;
+    const end = start + installedPageSize;
+    return filtered.slice(start, end);
+  }, [filtered, installedPage, installedPageSize]);
+
+  // Paginated search results
+  const paginatedSearchResults = useMemo(() => {
+    if (searchPageSize === 0) return searchResults; // Show all when "All" selected
+    const start = (searchPage - 1) * searchPageSize;
+    const end = start + searchPageSize;
+    return searchResults.slice(start, end);
+  }, [searchResults, searchPage, searchPageSize]);
+
+  // Reset to page 1 when search changes
+  useEffect(() => {
+    setSearchPage(1);
+  }, [searchResults]);
+
+  // Reset to page 1 when filter changes
+  useEffect(() => {
+    setInstalledPage(1);
+  }, [search]);
 
   const currentBundle = useMemo(() => {
     if (!selectedBundle || !bundles) return null;
@@ -236,9 +285,10 @@ export default function PackageManager() {
     }
   };
 
-  const execute = async (endpoint: "/install" | "/uninstall", targetIdentifier?: string) => {
+  const execute = async (endpoint: "/install" | "/uninstall", targetIdentifier?: string, packageName?: string) => {
     const id = targetIdentifier ?? identifier;
     if (!id) return;
+    const displayName = packageName || id; // Use package name if provided, otherwise fall back to ID
     setIsBusy(true);
     if (endpoint === "/install") {
       setInstallingPackageId(id);
@@ -249,16 +299,16 @@ export default function PackageManager() {
         body: JSON.stringify({ identifier: id })
       });
       if (result.succeeded) {
-        showToast(`${id} ${endpoint === "/install" ? "installed" : "uninstalled"} successfully.`, "success");
+        showToast(`${displayName} ${endpoint === "/install" ? "installed" : "uninstalled"} successfully.`, "success");
       } else {
-        showToast(`Failed to ${endpoint === "/install" ? "install" : "uninstall"} ${id}. Error: ${result.message.split('\n')[0]}`, "error");
+        showToast(`Failed to ${endpoint === "/install" ? "install" : "uninstall"} ${displayName}. Error: ${result.message.split('\n')[0]}`, "error");
       }
       await mutate();
       if (endpoint === "/install") {
         setInstallingPackageId(null);
       }
     } catch (err) {
-      showToast(`Failed to ${endpoint === "/install" ? "install" : "uninstall"} ${id}: ${err instanceof Error ? err.message : String(err)}`, "error");
+      showToast(`Failed to ${endpoint === "/install" ? "install" : "uninstall"} ${displayName}: ${err instanceof Error ? err.message : String(err)}`, "error");
       if (endpoint === "/install") {
         setInstallingPackageId(null);
       }
@@ -289,6 +339,50 @@ export default function PackageManager() {
       showToast(`Failed to create bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
     } finally {
       setIsCreatingBundle(false);
+    }
+  };
+
+  const createQuickBundle = async () => {
+    if (!quickBundleName.trim()) {
+      showToast("Please enter a bundle name", "warning");
+      return;
+    }
+    setIsCreatingQuickBundle(true);
+    try {
+      const bundle = await api<PackageBundle>("/api/packages/bundles", {
+        method: "POST",
+        body: JSON.stringify({ name: quickBundleName, description: "" })
+      });
+
+      // Add pending packages to the bundle
+      if (pendingBundlePackages.length > 0) {
+        const packagesToAdd = pendingBundlePackages.map(p => ({
+          id: p.id,
+          name: p.name,
+          version: p.version ?? null,
+          publisher: p.publisher ?? null
+        }));
+
+        await api<PackageBundle>(`/api/packages/bundles/${bundle.id}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            packages: packagesToAdd
+          })
+        });
+
+        showToast(`Bundle "${bundle.name}" created with ${packagesToAdd.length} package(s)`, "success");
+      } else {
+        showToast(`Bundle "${bundle.name}" created successfully`, "success");
+      }
+
+      await mutateBundles();
+      setQuickBundleName("");
+      setShowBundleInput(false);
+      setPendingBundlePackages([]);
+    } catch (err) {
+      showToast(`Failed to create bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
+    } finally {
+      setIsCreatingQuickBundle(false);
     }
   };
 
@@ -333,67 +427,104 @@ export default function PackageManager() {
     }
   };
 
-  const [bundleToInstall, setBundleToInstall] = useState<string | null>(null);
+  const [bundleToInstall, setBundleToInstall] = useState<PackageBundle | null>(null);
+  const [selectedBundlePackages, setSelectedBundlePackages] = useState<Set<string>>(new Set());
 
   const installBundle = async (bundleId: string) => {
-    setBundleToInstall(bundleId);
-    setConfirmDialog({
-      isOpen: true,
-      title: "Install Bundle",
-      message: "Install all packages in this bundle? This may take a while.",
-      onConfirm: async () => {
-        if (!bundleToInstall) return;
-        setIsInstallingBundle(true);
-        try {
-          const results = await api<PackageOperationResult[]>(`/api/packages/bundles/${bundleToInstall}/install`, {
-            method: "POST"
-          });
-          
-          const succeeded = results.filter(r => r.succeeded).length;
-          const failed = results.filter(r => !r.succeeded).length;
-          if (failed === 0) {
-            showToast(`Bundle installation complete: ${succeeded} package(s) installed successfully`, "success");
-          } else {
-            showToast(`Bundle installation complete: ${succeeded} succeeded, ${failed} failed`, "warning");
-          }
-          await mutate();
-          setBundleToInstall(null);
-          setConfirmDialog({ ...confirmDialog, isOpen: false });
-        } catch (err) {
-          showToast(`Failed to install bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
-        } finally {
-          setIsInstallingBundle(false);
-        }
-      },
-      variant: "info"
-    });
+    const bundle = bundles?.find(b => b.id === bundleId);
+    if (!bundle) return;
+
+    setBundleToInstall(bundle);
+    // Initially select all packages
+    setSelectedBundlePackages(new Set(bundle.packages.map(p => p.id)));
   };
 
-  const [bundleToDelete, setBundleToDelete] = useState<string | null>(null);
+  const confirmInstallBundle = async () => {
+    if (!bundleToInstall) return;
+
+    setIsInstallingBundle(true);
+    try {
+      // Filter packages to only install selected ones
+      const packagesToInstall = bundleToInstall.packages
+        .filter(p => selectedBundlePackages.has(p.id))
+        .map(p => p.id);
+
+      const results: PackageOperationResult[] = [];
+      for (const packageId of packagesToInstall) {
+        try {
+          const result = await api<PackageOperationResult>("/api/packages/install", {
+            method: "POST",
+            body: JSON.stringify({ identifier: packageId })
+          });
+          results.push(result);
+        } catch (err) {
+          results.push({
+            succeeded: false,
+            exitCode: -1,
+            message: err instanceof Error ? err.message : String(err)
+          });
+        }
+      }
+
+      const succeeded = results.filter(r => r.succeeded).length;
+      const failed = results.filter(r => !r.succeeded).length;
+      if (failed === 0) {
+        showToast(`Bundle installation complete: ${succeeded} package(s) installed successfully`, "success");
+      } else {
+        showToast(`Bundle installation complete: ${succeeded} succeeded, ${failed} failed`, "warning");
+      }
+      await mutate();
+      setBundleToInstall(null);
+      setSelectedBundlePackages(new Set());
+    } catch (err) {
+      showToast(`Failed to install bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
+    } finally {
+      setIsInstallingBundle(false);
+    }
+  };
+
+  const renameBundle = async (bundleId: string, newName: string) => {
+    if (!newName.trim()) {
+      showToast("Please enter a bundle name", "warning");
+      return;
+    }
+    try {
+      await api<PackageBundle>(`/api/packages/bundles/${bundleId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: newName.trim()
+        })
+      });
+      await mutateBundles();
+      showToast("Bundle renamed successfully", "success");
+      setRenamingBundleId(null);
+      setRenamingBundleName("");
+    } catch (err) {
+      showToast(`Failed to rename bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
+    }
+  };
+
+  const [bundleToDelete, setBundleToDelete] = useState<PackageBundle | null>(null);
 
   const deleteBundle = async (bundleId: string) => {
-    setBundleToDelete(bundleId);
-    setConfirmDialog({
-      isOpen: true,
-      title: "Delete Bundle",
-      message: "Are you sure you want to delete this bundle?",
-      onConfirm: async () => {
-        if (!bundleToDelete) return;
-        try {
-          await api(`/api/packages/bundles/${bundleToDelete}`, { method: "DELETE" });
-          await mutateBundles();
-          if (selectedBundle === bundleToDelete) {
-            setSelectedBundle(null);
-          }
-          showToast("Bundle deleted successfully", "success");
-          setBundleToDelete(null);
-          setConfirmDialog({ ...confirmDialog, isOpen: false });
-        } catch (err) {
-          showToast(`Failed to delete bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
-        }
-      },
-      variant: "danger"
-    });
+    const bundle = bundles?.find(b => b.id === bundleId);
+    if (!bundle) return;
+    setBundleToDelete(bundle);
+  };
+
+  const confirmDeleteBundle = async () => {
+    if (!bundleToDelete) return;
+    try {
+      await api(`/api/packages/bundles/${bundleToDelete.id}`, { method: "DELETE" });
+      await mutateBundles();
+      if (selectedBundle === bundleToDelete.id) {
+        setSelectedBundle(null);
+      }
+      showToast("Bundle deleted successfully", "success");
+      setBundleToDelete(null);
+    } catch (err) {
+      showToast(`Failed to delete bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
+    }
   };
 
   const exportBundle = (bundle: PackageBundle) => {
@@ -479,56 +610,76 @@ export default function PackageManager() {
               />
             </div>
 
-            <Table
-              data={filtered}
-              columns={[
-                {
-                  key: "displayName",
-                  label: "Application",
-                  sortable: true,
-                  sortFn: (a, b) => a.displayName.localeCompare(b.displayName),
-                  render: (pkg) => (
-                    <div className="flex items-center gap-2">
-                      <Package size={16} className="text-sky-300 flex-shrink-0" />
-                      <div>
-                        <p className="font-medium text-white">{pkg.displayName}</p>
-                        <p className="text-xs text-slate-400">
-                          {pkg.version} · {pkg.publisher}
-                        </p>
+            <div className="border border-slate-800 rounded">
+              <Table
+                data={paginatedInstalled}
+                columns={[
+                  {
+                    key: "displayName",
+                    label: "Application",
+                    sortable: true,
+                    sortFn: (a, b) => a.displayName.localeCompare(b.displayName),
+                    render: (pkg) => (
+                      <div className="flex items-center gap-2">
+                        <Package size={16} className="text-sky-300 flex-shrink-0" />
+                        <div>
+                          <p className="font-medium text-white">{pkg.displayName}</p>
+                          <p className="text-xs text-slate-400">
+                            {pkg.version} · {pkg.publisher}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  )
-                },
-                {
-                  key: "version",
-                  label: "Version",
-                  sortable: true,
-                  sortFn: (a, b) => a.version.localeCompare(b.version),
-                  render: (pkg) => <span>{pkg.version}</span>
-                },
-                {
-                  key: "actions",
-                  label: "Actions",
-                  sortable: false,
-                  render: (pkg) => (
-                    <button
-                      className="btn-outline"
-                      onClick={() => {
-                        setIdentifier(pkg.identifier);
-                        execute("/uninstall");
-                      }}
-                      disabled={isBusy}
-                    >
-                      Remove
-                    </button>
-                  )
-                }
-              ]}
-              keyExtractor={(pkg) => pkg.identifier}
-              isLoading={isLoading}
-              emptyMessage="No packages found"
-              maxHeight="max-h-96"
-            />
+                    )
+                  },
+                  {
+                    key: "version",
+                    label: "Version",
+                    sortable: true,
+                    sortFn: (a, b) => a.version.localeCompare(b.version),
+                    render: (pkg) => <span>{pkg.version}</span>
+                  },
+                  {
+                    key: "actions",
+                    label: "Actions",
+                    sortable: false,
+                    render: (pkg) => (
+                      <button
+                        className="btn-outline"
+                        onClick={() => {
+                          setConfirmDialog({
+                            isOpen: true,
+                            title: "Uninstall Package",
+                            message: `Uninstall ${pkg.displayName}?`,
+                            onConfirm: async () => {
+                              await execute("/uninstall", pkg.identifier, pkg.displayName);
+                              setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                            },
+                            variant: "danger"
+                          });
+                        }}
+                        disabled={isBusy}
+                      >
+                        Remove
+                      </button>
+                    )
+                  }
+                ]}
+                keyExtractor={(pkg) => pkg.identifier}
+                isLoading={isLoading}
+                emptyMessage="No packages found"
+                maxHeight="max-h-96"
+              />
+              <Pagination
+                currentPage={installedPage}
+                totalItems={filtered.length}
+                pageSize={installedPageSize}
+                onPageChange={setInstalledPage}
+                onPageSizeChange={(size) => {
+                  setInstalledPageSize(size);
+                  localStorage.setItem('weasel.packages.installed.pageSize', size.toString());
+                }}
+              />
+            </div>
         </div>
       )}
 
@@ -590,38 +741,84 @@ export default function PackageManager() {
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    {selectedPackages.size > 0 && bundles && bundles.length > 0 && (
-                      <select
-                        className="btn-outline text-xs"
-                        value=""
-                        onChange={(e) => {
-                          const bundleId = e.target.value;
-                          if (bundleId) {
-                            addSelectedToBundle(bundleId);
-                          }
-                          e.target.value = "";
-                        }}
-                      >
-                        <option value="">Add selected to bundle...</option>
-                        {bundles.map(b => (
-                          <option key={b.id} value={b.id}>{b.name}</option>
-                        ))}
-                      </select>
-                    )}
                     {selectedPackages.size > 0 && (
-                      <button
-                        className="btn-primary text-xs"
-                        onClick={installSelectedPackages}
-                        disabled={isBusy}
-                      >
-                        Install Selected ({selectedPackages.size})
-                      </button>
+                      <>
+                        {!showBundleInput ? (
+                          <select
+                            className="btn-outline text-xs"
+                            value=""
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === "__create_new__") {
+                                setPendingBundlePackages(searchResults.filter(p => selectedPackages.has(p.id)));
+                                setShowBundleInput(true);
+                              } else if (value) {
+                                addSelectedToBundle(value);
+                              }
+                              e.target.value = "";
+                            }}
+                          >
+                            <option value="">Add selected to bundle...</option>
+                            <option value="__create_new__">+ Create New Bundle</option>
+                            {bundles && bundles.map(b => (
+                              <option key={b.id} value={b.id}>{b.name}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div className="flex gap-2 items-center">
+                            <input
+                              type="text"
+                              className="input-text text-xs px-2 py-1"
+                              placeholder="Bundle name..."
+                              value={quickBundleName}
+                              onChange={(e) => setQuickBundleName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  createQuickBundle();
+                                } else if (e.key === "Escape") {
+                                  setShowBundleInput(false);
+                                  setQuickBundleName("");
+                                  setPendingBundlePackages([]);
+                                }
+                              }}
+                              autoFocus
+                              disabled={isCreatingQuickBundle}
+                            />
+                            <button
+                              className="btn-primary text-xs"
+                              onClick={createQuickBundle}
+                              disabled={isCreatingQuickBundle || !quickBundleName.trim()}
+                            >
+                              {isCreatingQuickBundle ? "Creating..." : "Create"}
+                            </button>
+                            <button
+                              className="btn-outline text-xs"
+                              onClick={() => {
+                                setShowBundleInput(false);
+                                setQuickBundleName("");
+                                setPendingBundlePackages([]);
+                              }}
+                              disabled={isCreatingQuickBundle}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        )}
+                        <button
+                          className="btn-primary text-xs"
+                          onClick={installSelectedPackages}
+                          disabled={isBusy}
+                        >
+                          Install Selected ({selectedPackages.size})
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
 
-                <Table
-                  data={searchResults}
+                <div className="border border-slate-800 rounded">
+                  <Table
+                    data={paginatedSearchResults}
                   columns={[
                     {
                       key: "select",
@@ -681,7 +878,7 @@ export default function PackageManager() {
                                 {hasUpdate && (
                                   <button
                                     className="btn-primary text-xs"
-                                    onClick={() => execute("/install", pkg.id)}
+                                    onClick={() => execute("/install", pkg.id, pkg.name)}
                                     disabled={isBusy}
                                     title={`Update from ${installed.version} to ${pkg.version}`}
                                   >
@@ -696,7 +893,7 @@ export default function PackageManager() {
                                       title: "Uninstall Package",
                                       message: `Uninstall ${pkg.name}?`,
                                       onConfirm: async () => {
-                                        await execute("/uninstall", pkg.id);
+                                        await execute("/uninstall", pkg.id, pkg.name);
                                         setConfirmDialog({ ...confirmDialog, isOpen: false });
                                       },
                                       variant: "danger"
@@ -710,40 +907,79 @@ export default function PackageManager() {
                             ) : (
                               <button
                                 className="btn-primary text-xs"
-                                onClick={() => execute("/install", pkg.id)}
+                                onClick={() => execute("/install", pkg.id, pkg.name)}
                                 disabled={isBusy}
                               >
                                 Install
                               </button>
                             )}
-                            {bundles && bundles.length > 0 && (
-                              <select
-                                className="btn-outline text-xs"
-                                value=""
-                                onChange={(e) => {
-                                  const bundleId = e.target.value;
-                                  if (bundleId) {
-                                    addPackageToBundle(pkg);
+                            <select
+                              className="btn-outline text-xs"
+                              value=""
+                              onChange={async (e) => {
+                                const value = e.target.value;
+                                if (value === "__create_new__") {
+                                  const bundleName = prompt("Enter bundle name:");
+                                  if (bundleName && bundleName.trim()) {
+                                    try {
+                                      const bundle = await api<PackageBundle>("/api/packages/bundles", {
+                                        method: "POST",
+                                        body: JSON.stringify({ name: bundleName.trim(), description: "" })
+                                      });
+
+                                      const bundlePackage: BundlePackage = {
+                                        id: pkg.id,
+                                        name: pkg.name,
+                                        version: pkg.version ?? null,
+                                        publisher: pkg.publisher ?? null
+                                      };
+
+                                      await api<PackageBundle>(`/api/packages/bundles/${bundle.id}`, {
+                                        method: "PUT",
+                                        body: JSON.stringify({
+                                          packages: [bundlePackage]
+                                        })
+                                      });
+
+                                      await mutateBundles();
+                                      showToast(`Bundle "${bundle.name}" created and ${pkg.name} added`, "success");
+                                    } catch (err) {
+                                      showToast(`Failed to create bundle: ${err instanceof Error ? err.message : String(err)}`, "error");
+                                    }
                                   }
-                                  e.target.value = "";
-                                }}
-                              >
-                                <option value="">Add to bundle...</option>
-                                {bundles.map(b => (
-                                  <option key={b.id} value={b.id}>{b.name}</option>
-                                ))}
-                              </select>
-                            )}
+                                } else if (value) {
+                                  await addPackageToBundle(pkg);
+                                }
+                                e.target.value = "";
+                              }}
+                            >
+                              <option value="">Add to bundle...</option>
+                              <option value="__create_new__">+ Create New Bundle</option>
+                              {bundles && bundles.map(b => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                              ))}
+                            </select>
                           </div>
                         );
                       }
                     }
                   ]}
-                  keyExtractor={(pkg) => pkg.id}
-                  isLoading={isSearching}
-                  emptyMessage="No results found. Try a different search query."
-                  maxHeight="max-h-96"
-                />
+                    keyExtractor={(pkg) => pkg.id}
+                    isLoading={isSearching}
+                    emptyMessage="No results found. Try a different search query."
+                    maxHeight="max-h-96"
+                  />
+                  <Pagination
+                    currentPage={searchPage}
+                    totalItems={searchResults.length}
+                    pageSize={searchPageSize}
+                    onPageChange={setSearchPage}
+                    onPageSizeChange={(size) => {
+                      setSearchPageSize(size);
+                      localStorage.setItem('weasel.packages.search.pageSize', size.toString());
+                    }}
+                  />
+                </div>
               </div>
 
               {/* Installation Log Tailing */}
@@ -821,7 +1057,42 @@ export default function PackageManager() {
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h4 className="font-semibold text-white">{bundle.name}</h4>
+                        {renamingBundleId === bundle.id ? (
+                          <div className="flex gap-2 items-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="text"
+                              className="input-text text-sm px-2 py-1"
+                              value={renamingBundleName}
+                              onChange={(e) => setRenamingBundleName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  renameBundle(bundle.id, renamingBundleName);
+                                } else if (e.key === "Escape") {
+                                  setRenamingBundleId(null);
+                                  setRenamingBundleName("");
+                                }
+                              }}
+                              autoFocus
+                            />
+                            <button
+                              className="btn-outline text-xs"
+                              onClick={() => renameBundle(bundle.id, renamingBundleName)}
+                            >
+                              <Check size={14} />
+                            </button>
+                            <button
+                              className="btn-outline text-xs"
+                              onClick={() => {
+                                setRenamingBundleId(null);
+                                setRenamingBundleName("");
+                              }}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ) : (
+                          <h4 className="font-semibold text-white">{bundle.name}</h4>
+                        )}
                         {bundle.description && (
                           <p className="text-sm text-slate-400 mt-1">{bundle.description}</p>
                         )}
@@ -834,8 +1105,20 @@ export default function PackageManager() {
                           className="btn-outline text-xs"
                           onClick={(e) => {
                             e.stopPropagation();
+                            setRenamingBundleId(bundle.id);
+                            setRenamingBundleName(bundle.name);
+                          }}
+                          title="Rename"
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          className="btn-outline text-xs"
+                          onClick={(e) => {
+                            e.stopPropagation();
                             exportBundle(bundle);
                           }}
+                          title="Export"
                         >
                           <Download size={14} />
                         </button>
@@ -846,6 +1129,7 @@ export default function PackageManager() {
                             installBundle(bundle.id);
                           }}
                           disabled={isInstallingBundle}
+                          title="Install All"
                         >
                           Install All
                         </button>
@@ -855,6 +1139,7 @@ export default function PackageManager() {
                             e.stopPropagation();
                             deleteBundle(bundle.id);
                           }}
+                          title="Delete"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -933,6 +1218,135 @@ export default function PackageManager() {
         onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
         variant={confirmDialog.variant}
       />
+
+      {/* Install Bundle Dialog with Package List */}
+      {bundleToInstall && (
+        <div className="modal-backdrop" onClick={() => setBundleToInstall(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 className="text-lg font-semibold text-white">Install Bundle: {bundleToInstall.name}</h3>
+              <button
+                className="icon-btn"
+                onClick={() => setBundleToInstall(null)}
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body space-y-4">
+              <p className="text-slate-300">
+                Select packages to install from this bundle. Uncheck any packages you don't want to install.
+              </p>
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {bundleToInstall.packages.map((pkg) => (
+                  <label
+                    key={pkg.id}
+                    className="flex items-center gap-3 p-2 hover:bg-slate-800/50 rounded cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      className="checkbox"
+                      checked={selectedBundlePackages.has(pkg.id)}
+                      onChange={() => {
+                        setSelectedBundlePackages(prev => {
+                          const next = new Set(prev);
+                          if (next.has(pkg.id)) {
+                            next.delete(pkg.id);
+                          } else {
+                            next.add(pkg.id);
+                          }
+                          return next;
+                        });
+                      }}
+                    />
+                    <Package size={16} className="text-green-400 flex-shrink-0" />
+                    <div className="flex-1">
+                      <p className="font-medium text-white">{pkg.name}</p>
+                      <p className="text-xs text-slate-400">{pkg.id} {pkg.version && `· v${pkg.version}`}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500">
+                {selectedBundlePackages.size} of {bundleToInstall.packages.length} packages selected
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className="btn-outline" onClick={() => setBundleToInstall(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={confirmInstallBundle}
+                disabled={isInstallingBundle || selectedBundlePackages.size === 0}
+              >
+                {isInstallingBundle ? "Installing..." : `Install ${selectedBundlePackages.size} Package(s)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Bundle Dialog with Package List */}
+      {bundleToDelete && (
+        <div className="modal-backdrop" onClick={() => setBundleToDelete(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-red-900/20 border-red-500/50 text-red-200">
+                  <AlertTriangle size={20} />
+                </div>
+                <h3 className="text-lg font-semibold text-white">Delete Bundle: {bundleToDelete.name}</h3>
+              </div>
+              <button
+                className="icon-btn"
+                onClick={() => setBundleToDelete(null)}
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="modal-body space-y-4">
+              <p className="text-slate-300">
+                Are you sure you want to delete this bundle? The bundle will be removed, but the packages themselves will remain installed on your system.
+              </p>
+              {bundleToDelete.packages.length > 0 && (
+                <>
+                  <p className="text-sm font-medium text-slate-200">This bundle contains:</p>
+                  <div className="space-y-1 max-h-60 overflow-y-auto">
+                    {bundleToDelete.packages.map((pkg) => (
+                      <div
+                        key={pkg.id}
+                        className="flex items-center gap-2 p-2 bg-slate-800/30 rounded"
+                      >
+                        <Package size={14} className="text-amber-300 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-white truncate">{pkg.name}</p>
+                          <p className="text-xs text-slate-400 truncate">{pkg.id}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {bundleToDelete.packages.length} package(s) in this bundle
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button className="btn-outline" onClick={() => setBundleToDelete(null)}>
+                Cancel
+              </button>
+              <button
+                className="btn-primary bg-red-600 hover:bg-red-700"
+                onClick={confirmDeleteBundle}
+              >
+                Delete Bundle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

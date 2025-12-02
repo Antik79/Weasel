@@ -1,9 +1,17 @@
 using System.IO.Compression;
+using Microsoft.Extensions.Logging;
 
 namespace WeaselHost.Infrastructure.Services;
 
 public sealed class FileSystemService : IFileSystemService
 {
+    private readonly ILogger<FileSystemService> _logger;
+
+    public FileSystemService(ILogger<FileSystemService> logger)
+    {
+        _logger = logger;
+    }
+
     public Task<IReadOnlyCollection<FileSystemItem>> GetDrivesAsync(CancellationToken cancellationToken = default)
     {
         var drives = DriveInfo.GetDrives()
@@ -24,6 +32,8 @@ public sealed class FileSystemService : IFileSystemService
     public Task<IReadOnlyCollection<FileSystemItem>> GetChildrenAsync(string directoryPath, CancellationToken cancellationToken = default)
     {
         var path = NormalizePath(directoryPath);
+        _logger.LogInformation("Listing directory contents: {Path}", path);
+
         if (!Directory.Exists(path))
         {
             // For relative paths (like .\Screenshots), create the directory if it doesn't exist
@@ -32,15 +42,18 @@ public sealed class FileSystemService : IFileSystemService
                 try
                 {
                     Directory.CreateDirectory(path);
+                    _logger.LogInformation("Created directory: {Path}", path);
                 }
-                catch
+                catch (Exception ex)
                 {
+                    _logger.LogError(ex, "Failed to create directory: {Path}", path);
                     // If we can't create it, return empty list
                     return Task.FromResult<IReadOnlyCollection<FileSystemItem>>(Array.Empty<FileSystemItem>());
                 }
             }
             else
             {
+                _logger.LogWarning("Directory not found: {Path}", path);
                 throw new DirectoryNotFoundException($"Directory '{path}' was not found.");
             }
         }
@@ -52,6 +65,7 @@ public sealed class FileSystemService : IFileSystemService
             .ToList()
             .AsReadOnly();
 
+        _logger.LogInformation("Listed {Count} items from: {Path}", items.Count, path);
         return Task.FromResult<IReadOnlyCollection<FileSystemItem>>(items);
     }
 
@@ -118,7 +132,10 @@ public sealed class FileSystemService : IFileSystemService
 
     public Task CreateDirectoryAsync(string path, CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(NormalizePath(path));
+        var fullPath = NormalizePath(path);
+        _logger.LogInformation("Creating directory: {Path}", fullPath);
+        Directory.CreateDirectory(fullPath);
+        _logger.LogInformation("Directory created successfully: {Path}", fullPath);
         return Task.CompletedTask;
     }
 
@@ -127,16 +144,21 @@ public sealed class FileSystemService : IFileSystemService
         var fullPath = NormalizePath(path);
         if (File.Exists(fullPath))
         {
+            _logger.LogInformation("Deleting file: {Path}", fullPath);
             File.Delete(fullPath);
+            _logger.LogInformation("File deleted successfully: {Path}", fullPath);
             return Task.CompletedTask;
         }
 
         if (Directory.Exists(fullPath))
         {
+            _logger.LogInformation("Deleting directory (recursive): {Path}", fullPath);
             Directory.Delete(fullPath, true);
+            _logger.LogInformation("Directory deleted successfully: {Path}", fullPath);
             return Task.CompletedTask;
         }
 
+        _logger.LogWarning("Delete failed - path not found: {Path}", fullPath);
         throw new FileNotFoundException("Path not found.", fullPath);
     }
 
@@ -153,16 +175,21 @@ public sealed class FileSystemService : IFileSystemService
 
         if (File.Exists(fullPath))
         {
+            _logger.LogInformation("Renaming file: {OldPath} → {NewName}", fullPath, newName);
             File.Move(fullPath, destination, overwrite: false);
+            _logger.LogInformation("File renamed successfully: {NewPath}", destination);
             return Task.CompletedTask;
         }
 
         if (Directory.Exists(fullPath))
         {
+            _logger.LogInformation("Renaming directory: {OldPath} → {NewName}", fullPath, newName);
             Directory.Move(fullPath, destination);
+            _logger.LogInformation("Directory renamed successfully: {NewPath}", destination);
             return Task.CompletedTask;
         }
 
+        _logger.LogWarning("Rename failed - path not found: {Path}", fullPath);
         throw new FileNotFoundException("Path not found.", fullPath);
     }
 
@@ -173,12 +200,14 @@ public sealed class FileSystemService : IFileSystemService
 
         if (File.Exists(source))
         {
+            _logger.LogInformation("Moving file: {Source} → {Destination}", source, destination);
             var destDir = Path.GetDirectoryName(destination);
             if (!string.IsNullOrEmpty(destDir))
             {
                 Directory.CreateDirectory(destDir);
             }
             File.Move(source, destination, overwrite: true);
+            _logger.LogInformation("File moved successfully: {Destination}", destination);
             return Task.CompletedTask;
         }
 
@@ -186,12 +215,16 @@ public sealed class FileSystemService : IFileSystemService
         {
             if (Directory.Exists(destination))
             {
+                _logger.LogWarning("Move failed - destination directory already exists: {Destination}", destination);
                 throw new IOException($"Destination directory '{destination}' already exists.");
             }
+            _logger.LogInformation("Moving directory: {Source} → {Destination}", source, destination);
             Directory.Move(source, destination);
+            _logger.LogInformation("Directory moved successfully: {Destination}", destination);
             return Task.CompletedTask;
         }
 
+        _logger.LogWarning("Move failed - source path not found: {Source}", source);
         throw new FileNotFoundException("Source path not found.", source);
     }
 
@@ -202,12 +235,14 @@ public sealed class FileSystemService : IFileSystemService
 
         if (File.Exists(source))
         {
+            _logger.LogInformation("Copying file: {Source} → {Destination}", source, destination);
             var destDir = Path.GetDirectoryName(destination);
             if (!string.IsNullOrEmpty(destDir))
             {
                 Directory.CreateDirectory(destDir);
             }
             File.Copy(source, destination, overwrite: true);
+            _logger.LogInformation("File copied successfully: {Destination}", destination);
             return;
         }
 
@@ -215,14 +250,18 @@ public sealed class FileSystemService : IFileSystemService
         {
             if (Directory.Exists(destination))
             {
+                _logger.LogWarning("Copy failed - destination directory already exists: {Destination}", destination);
                 throw new IOException($"Destination directory '{destination}' already exists.");
             }
 
+            _logger.LogInformation("Copying directory: {Source} → {Destination}", source, destination);
             Directory.CreateDirectory(destination);
             await CopyDirectoryAsync(source, destination, cancellationToken);
+            _logger.LogInformation("Directory copied successfully: {Destination}", destination);
             return;
         }
 
+        _logger.LogWarning("Copy failed - source path not found: {Source}", source);
         throw new FileNotFoundException("Source path not found.", source);
     }
 
@@ -250,6 +289,10 @@ public sealed class FileSystemService : IFileSystemService
     public async Task<string> CreateZipAsync(IEnumerable<string> sourcePaths, string zipFilePath, CancellationToken cancellationToken = default)
     {
         var zipPath = NormalizePath(zipFilePath);
+        var sourceList = sourcePaths.ToList();
+
+        _logger.LogInformation("Creating zip archive: {ZipPath} ({Count} items)", zipPath, sourceList.Count);
+
         var zipDir = Path.GetDirectoryName(zipPath);
         if (!string.IsNullOrEmpty(zipDir))
         {
@@ -263,7 +306,7 @@ public sealed class FileSystemService : IFileSystemService
 
         using var archive = ZipFile.Open(zipPath, ZipArchiveMode.Create);
 
-        foreach (var sourcePath in sourcePaths)
+        foreach (var sourcePath in sourceList)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var source = NormalizePath(sourcePath);
@@ -271,14 +314,17 @@ public sealed class FileSystemService : IFileSystemService
 
             if (File.Exists(source))
             {
+                _logger.LogDebug("Adding file to zip: {Source}", source);
                 archive.CreateEntryFromFile(source, entryName);
             }
             else if (Directory.Exists(source))
             {
+                _logger.LogDebug("Adding directory to zip: {Source}", source);
                 await AddDirectoryToZipAsync(archive, source, entryName + "/", cancellationToken);
             }
         }
 
+        _logger.LogInformation("Zip archive created successfully: {ZipPath}", zipPath);
         return zipPath;
     }
 
@@ -307,11 +353,14 @@ public sealed class FileSystemService : IFileSystemService
 
         if (!File.Exists(zipPath))
         {
+            _logger.LogWarning("Extract failed - zip file not found: {ZipPath}", zipPath);
             throw new FileNotFoundException("Zip file not found.", zipPath);
         }
 
+        _logger.LogInformation("Extracting zip archive: {ZipPath} → {Destination}", zipPath, destPath);
         Directory.CreateDirectory(destPath);
         ZipFile.ExtractToDirectory(zipPath, destPath, overwriteFiles: true);
+        _logger.LogInformation("Zip archive extracted successfully: {Destination}", destPath);
         return Task.CompletedTask;
     }
 

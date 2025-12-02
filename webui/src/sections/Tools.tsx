@@ -6,7 +6,7 @@ import { getAuthToken } from "../components/Login";
 
 // Lazy load TerminalViewer - only loads when Terminal tab is active
 const TerminalViewer = lazy(() => import("../components/TerminalViewer"));
-import { FileSystemItem, CaptureSettings, DiskMonitoringConfig, DiskMonitoringStatus, DriveAlertStatus, DriveMonitorConfig, FolderMonitorOptions, ProcessInfo, ApplicationMonitorConfig, MonitoredApplication, VncConfig, VncStatus, TerminalSession, LogsResponse, LogFileInfo } from "../types";
+import { FileSystemItem, CaptureSettings, DiskMonitoringConfig, DiskMonitoringStatus, DriveAlertStatus, DriveMonitorConfig, FolderMonitorOptions, ProcessInfo, ApplicationMonitorConfig, MonitoredApplication, VncConfig, VncStatus, VncServerProfile, TerminalSession, LogsResponse, LogFileInfo } from "../types";
 import { formatBytes, formatDate, formatPath } from "../utils/format";
 import FilePicker from "../components/FilePicker";
 import FolderPicker from "../components/FolderPicker";
@@ -16,6 +16,8 @@ import { useTranslation } from "../i18n/i18n";
 import { useTheme, type Theme } from "../theme";
 import { showToast } from "../App";
 import ConfirmDialog from "../components/ConfirmDialog";
+import Pagination from "../components/Pagination";
+import ToggleBar from "../components/ToggleBar";
 
 // UUID generator with polyfill for environments without crypto.randomUUID
 const generateUUID = (): string => {
@@ -45,7 +47,9 @@ const buildRawUrl = (path: string) => {
     url.searchParams.set("token", authToken);
   }
 
-  return url.toString();
+  const finalUrl = url.toString();
+  console.log('[Screenshots] Building raw URL for path:', path, '-> URL:', finalUrl);
+  return finalUrl;
 };
 
 export default function Tools() {
@@ -106,8 +110,9 @@ export default function Tools() {
     variant: "info"
   });
 
-  const { data: captureSettings, mutate: mutateCapture } = useSWR("capture-settings", captureFetcher);
+  const { data: captureSettings, mutate: mutateCapture} = useSWR("capture-settings", captureFetcher);
   const folder = captureSettings?.folder ?? "";
+  const timedFolder = captureSettings?.timedFolder ?? "";
 
   const [timedScreenshotSettings, setTimedScreenshotSettings] = useState({
     enableIntervalCapture: false,
@@ -123,6 +128,7 @@ export default function Tools() {
     }
   }, [captureSettings]);
 
+  // Captured Screenshots
   const {
     data: files,
     isLoading,
@@ -138,6 +144,66 @@ export default function Tools() {
     return files.filter((f) => f.name.toLowerCase().endsWith(".png"));
   }, [files]);
 
+  // Timed Screenshots
+  const {
+    data: timedFiles,
+    isLoading: timedLoading,
+    mutate: mutateTimedScreenshots
+  } = useSWR<FileSystemItem[]>(timedFolder ? ["timed-screenshots", timedFolder] : null, ([, path]: [string, string]) => {
+    const url = new URL("/api/fs", window.location.origin);
+    url.searchParams.set("path", path);
+    return api<FileSystemItem[]>(url.toString());
+  }, { revalidateOnFocus: false });
+
+  const timedImages = useMemo(() => {
+    if (!timedFiles || !Array.isArray(timedFiles)) return [];
+    return timedFiles.filter((f) => f.name.toLowerCase().endsWith(".png"));
+  }, [timedFiles]);
+
+  // Selection state for timed screenshots
+  const [selectedTimedScreenshots, setSelectedTimedScreenshots] = useState<Set<string>>(new Set());
+
+  // Pagination state for Captured Screenshots
+  const [capturedPageSize, setCapturedPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('weasel.screenshots.capturedPageSize');
+    return saved ? parseInt(saved) : 25;
+  });
+  const [capturedPage, setCapturedPage] = useState<number>(1);
+
+  // Pagination state for Timed Screenshots
+  const [timedPageSize, setTimedPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('weasel.screenshots.timedPageSize');
+    return saved ? parseInt(saved) : 25;
+  });
+  const [timedPage, setTimedPage] = useState<number>(1);
+
+  // Paginated screenshots
+  const paginatedCapturedImages = useMemo(() => {
+    if (capturedPageSize === 0) return images;
+    const start = (capturedPage - 1) * capturedPageSize;
+    const end = start + capturedPageSize;
+    return images.slice(start, end);
+  }, [images, capturedPageSize, capturedPage]);
+
+  const paginatedTimedImages = useMemo(() => {
+    if (timedPageSize === 0) return timedImages;
+    const start = (timedPage - 1) * timedPageSize;
+    const end = start + timedPageSize;
+    return timedImages.slice(start, end);
+  }, [timedImages, timedPageSize, timedPage]);
+
+  // Pagination handlers
+  const handleCapturedPageSizeChange = (size: number) => {
+    setCapturedPageSize(size);
+    setCapturedPage(1);
+    localStorage.setItem('weasel.screenshots.capturedPageSize', size.toString());
+  };
+
+  const handleTimedPageSizeChange = (size: number) => {
+    setTimedPageSize(size);
+    setTimedPage(1);
+    localStorage.setItem('weasel.screenshots.timedPageSize', size.toString());
+  };
 
   useEffect(() => {
     return () => {
@@ -295,6 +361,7 @@ export default function Tools() {
         body: JSON.stringify({
           folder: captureSettings?.folder || "",
           filenamePattern: captureSettings?.filenamePattern || "",
+          timedFolder: captureSettings?.timedFolder || "",
           enableIntervalCapture: timedScreenshotSettings.enableIntervalCapture,
           intervalSeconds: timedScreenshotSettings.intervalSeconds
         })
@@ -307,6 +374,99 @@ export default function Tools() {
     } finally {
       setIsSavingCapture(false);
     }
+  };
+
+  // Timed Screenshot handlers
+  const toggleTimedScreenshotSelection = (fullPath: string) => {
+    setSelectedTimedScreenshots(prev => {
+      const next = new Set(prev);
+      if (next.has(fullPath)) {
+        next.delete(fullPath);
+      } else {
+        next.add(fullPath);
+      }
+      return next;
+    });
+  };
+
+  const selectAllTimedScreenshots = () => {
+    setSelectedTimedScreenshots(new Set(timedImages.map(img => img.fullPath)));
+  };
+
+  const clearTimedScreenshotSelection = () => {
+    setSelectedTimedScreenshots(new Set());
+  };
+
+  const downloadSelectedTimedScreenshots = async () => {
+    if (selectedTimedScreenshots.size === 0) return;
+
+    try {
+      const authToken = getAuthToken();
+      const paths = Array.from(selectedTimedScreenshots);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json"
+      };
+      if (authToken) {
+        headers["X-Weasel-Token"] = authToken;
+      }
+
+      const response = await fetch("/api/fs/download/bulk", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ paths })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `timed_screenshots_${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      setSelectedTimedScreenshots(new Set());
+    } catch (err) {
+      showToast(`Failed to download screenshots: ${err instanceof Error ? err.message : String(err)}`, "error");
+    }
+  };
+
+  const deleteSelectedTimedScreenshots = async () => {
+    if (selectedTimedScreenshots.size === 0) return;
+
+    const count = selectedTimedScreenshots.size;
+    setConfirmDialog({
+      isOpen: true,
+      title: "Delete Timed Screenshots",
+      message: `Delete ${count} timed screenshot${count > 1 ? 's' : ''}?`,
+      onConfirm: async () => {
+        try {
+          const paths = Array.from(selectedTimedScreenshots);
+          for (const path of paths) {
+            const url = new URL("/api/fs", window.location.origin);
+            url.searchParams.set("path", path);
+            await api(url.toString(), { method: "DELETE" });
+            if (preview?.path === path) {
+              URL.revokeObjectURL(preview.url);
+              setPreview(null);
+            }
+          }
+          setSelectedTimedScreenshots(new Set());
+          await mutateTimedScreenshots?.();
+          showToast(`Deleted ${count} timed screenshot${count > 1 ? 's' : ''} successfully`, "success");
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        } catch (err) {
+          showToast(`Failed to delete screenshots: ${err instanceof Error ? err.message : String(err)}`, "error");
+          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        }
+      },
+      variant: "danger"
+    });
   };
 
   const toolsTabs: { key: ToolsTab; label: string; icon: React.ReactNode }[] = [
@@ -346,35 +506,31 @@ export default function Tools() {
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="interval-enable"
-                    className="checkbox"
-                    checked={timedScreenshotSettings.enableIntervalCapture}
-                    onChange={(e) => setTimedScreenshotSettings({ ...timedScreenshotSettings, enableIntervalCapture: e.target.checked })}
-                  />
-                  <label htmlFor="interval-enable" className="text-sm text-slate-300">
-                    {t("tools.screenshots.enableAuto")}
-                  </label>
-                </div>
+              <ToggleBar
+                label={t("tools.screenshots.enableAuto")}
+                description="Automatically capture screenshots at interval"
+                enabled={timedScreenshotSettings.enableIntervalCapture}
+                onChange={(enabled) => setTimedScreenshotSettings({ ...timedScreenshotSettings, enableIntervalCapture: enabled })}
+                icon={<Camera size={18} />}
+              />
 
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-slate-400">{t("tools.screenshots.intervalLabel")}</label>
-                  <input
-                    type="number"
-                    min={1}
-                    className="input-text w-24"
-                    value={timedScreenshotSettings.intervalSeconds}
-                    onChange={(e) => setTimedScreenshotSettings({ ...timedScreenshotSettings, intervalSeconds: Math.max(1, Number(e.target.value)) })}
-                    disabled={!timedScreenshotSettings.enableIntervalCapture}
-                  />
+              {timedScreenshotSettings.enableIntervalCapture && (
+                <div className="ml-6 pl-4 border-l-2 border-slate-800 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm text-slate-400">{t("tools.screenshots.intervalLabel")}</label>
+                    <input
+                      type="number"
+                      min={1}
+                      className="input-text w-24"
+                      value={timedScreenshotSettings.intervalSeconds}
+                      onChange={(e) => setTimedScreenshotSettings({ ...timedScreenshotSettings, intervalSeconds: Math.max(1, Number(e.target.value)) })}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    {t("tools.screenshots.intervalHint")}
+                  </p>
                 </div>
-              </div>
-              <p className="text-xs text-slate-500">
-                {t("tools.screenshots.intervalHint")}
-              </p>
+              )}
             </div>
           </div>
 
@@ -421,9 +577,6 @@ export default function Tools() {
                 {t("tools.screenshots.empty")}
               </div>
             )}
-            {!folder && (
-              <p className="text-sm text-red-400">{t("tools.screenshots.configurePrompt")}</p>
-            )}
 
             {selectedScreenshots.size > 0 && (
               <div className="panel bg-sky-900/20 border-sky-500/50">
@@ -447,7 +600,7 @@ export default function Tools() {
             )}
 
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {Array.isArray(images) && images.map((img) => (
+              {Array.isArray(paginatedCapturedImages) && paginatedCapturedImages.map((img) => (
                 <div key={img.fullPath} className={`screenshot-card ${selectedScreenshots.has(img.fullPath) ? 'ring-2 ring-sky-500' : ''}`}>
                   <div className="relative">
                     <img
@@ -455,6 +608,14 @@ export default function Tools() {
                       alt={img.name}
                       className="screenshot-thumb"
                       onClick={() => openPreview(img)}
+                      onError={(e) => {
+                        console.error('[Screenshots] Failed to load image:', img.fullPath, e);
+                        e.currentTarget.style.backgroundColor = '#1e293b';
+                        e.currentTarget.style.border = '2px solid #ef4444';
+                      }}
+                      onLoad={() => {
+                        console.log('[Screenshots] Image loaded successfully:', img.name);
+                      }}
                     />
                     <div className="absolute top-2 left-2">
                       <button
@@ -505,7 +666,175 @@ export default function Tools() {
                 </div>
               ))}
             </div>
+            <Pagination
+              currentPage={capturedPage}
+              totalItems={images.length}
+              pageSize={capturedPageSize}
+              onPageChange={setCapturedPage}
+              onPageSizeChange={handleCapturedPageSizeChange}
+            />
           </div>
+
+          {/* Timed Screenshots */}
+          {timedFolder && (
+            <div className="panel space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="panel-title mb-1">Timed Screenshots</h3>
+                  <p className="text-sm text-slate-400">
+                    Folder: {formatPath(timedFolder)}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {timedImages.length > 0 && (
+                    <button
+                      className="btn-outline text-xs"
+                      onClick={selectedTimedScreenshots.size === timedImages.length ? clearTimedScreenshotSelection : selectAllTimedScreenshots}
+                    >
+                      {selectedTimedScreenshots.size === timedImages.length ? (
+                        <>
+                          <Square size={14} /> Deselect All
+                        </>
+                      ) : (
+                        <>
+                          <CheckSquare size={14} /> Select All
+                        </>
+                      )}
+                    </button>
+                  )}
+                  <button className="btn-outline" onClick={() => mutateTimedScreenshots()}>
+                    <RefreshCw size={16} /> {t("common.refresh")}
+                  </button>
+                </div>
+              </div>
+
+              {timedLoading && <p className="text-sm text-slate-400">Loading timed screenshots...</p>}
+
+              {!timedLoading && timedImages.length === 0 && (
+                <div className="text-sm text-slate-400 flex items-center gap-2">
+                  <ImageIcon size={16} />
+                  No timed screenshots found
+                </div>
+              )}
+
+              {selectedTimedScreenshots.size > 0 && (
+                <div className="panel bg-sky-900/20 border-sky-500/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-slate-300">
+                      {selectedTimedScreenshots.size} timed screenshot{selectedTimedScreenshots.size > 1 ? 's' : ''} selected
+                    </span>
+                    <div className="flex gap-2">
+                      <button className="btn-outline text-xs" onClick={clearTimedScreenshotSelection}>
+                        Clear
+                      </button>
+                      <button className="btn-primary text-xs" onClick={downloadSelectedTimedScreenshots}>
+                        <Download size={14} /> Download as ZIP
+                      </button>
+                      <button className="btn-outline text-xs text-red-400 hover:text-red-300" onClick={deleteSelectedTimedScreenshots}>
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {Array.isArray(paginatedTimedImages) && paginatedTimedImages.map((img) => (
+                  <div key={img.fullPath} className={`screenshot-card ${selectedTimedScreenshots.has(img.fullPath) ? 'ring-2 ring-sky-500' : ''}`}>
+                    <div className="relative">
+                      <img
+                        src={buildRawUrl(img.fullPath)}
+                        alt={img.name}
+                        className="screenshot-thumb"
+                        onClick={() => openPreview(img)}
+                      />
+                      <div className="absolute top-2 left-2">
+                        <button
+                          className="icon-btn bg-slate-900/80 hover:bg-slate-800/80"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleTimedScreenshotSelection(img.fullPath);
+                          }}
+                          title={selectedTimedScreenshots.has(img.fullPath) ? "Deselect" : "Select"}
+                        >
+                          {selectedTimedScreenshots.has(img.fullPath) ? (
+                            <CheckSquare size={16} className="text-sky-400" />
+                          ) : (
+                            <Square size={16} />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="screenshot-meta">
+                      <div>
+                        <p className="screenshot-name">{img.name}</p>
+                        <p className="text-xs text-slate-400">{formatDate(img.modifiedAt)}</p>
+                      </div>
+                      <div className="screenshot-actions">
+                        <button
+                          className="icon-btn"
+                          onClick={() => openPreview(img)}
+                          title={t("common.view")}
+                        >
+                          <Eye size={16} />
+                        </button>
+                        <button
+                          className="icon-btn"
+                          onClick={() => download(img.fullPath)}
+                          title={t("common.download")}
+                        >
+                          <Download size={16} />
+                        </button>
+                        <button
+                          className="icon-btn"
+                          onClick={() => {
+                            setConfirmDialog({
+                              isOpen: true,
+                              title: "Delete Timed Screenshot",
+                              message: `Delete ${img.name}?`,
+                              onConfirm: async () => {
+                                try {
+                                  const url = new URL("/api/fs", window.location.origin);
+                                  url.searchParams.set("path", img.fullPath);
+                                  await api(url.toString(), { method: "DELETE" });
+                                  if (preview?.path === img.fullPath) {
+                                    URL.revokeObjectURL(preview.url);
+                                    setPreview(null);
+                                  }
+                                  setSelectedTimedScreenshots(prev => {
+                                    const next = new Set(prev);
+                                    next.delete(img.fullPath);
+                                    return next;
+                                  });
+                                  await mutateTimedScreenshots?.();
+                                  showToast("Timed screenshot deleted successfully", "success");
+                                  setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                                } catch (error) {
+                                  showToast(`Failed to delete screenshot: ${error instanceof Error ? error.message : 'Unknown error'}`, "error");
+                                  setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                                }
+                              },
+                              variant: "danger"
+                            });
+                          }}
+                          title="Delete"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <Pagination
+                currentPage={timedPage}
+                totalItems={timedImages.length}
+                pageSize={timedPageSize}
+                onPageChange={setTimedPage}
+                onPageSizeChange={handleTimedPageSizeChange}
+              />
+            </div>
+          )}
 
           {preview && (
             <div className="modal-backdrop" onClick={() => setPreview(null)}>
@@ -660,18 +989,13 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="enableMonitoring"
-              checked={form.enabled}
-              onChange={(e) => setForm((prev) => ({ ...prev, enabled: e.target.checked }))}
-              className="checkbox"
-            />
-            <label htmlFor="enableMonitoring" className="text-sm text-slate-300">
-              {t("tools.disk.enable")}
-            </label>
-          </div>
+          <ToggleBar
+            label={t("tools.disk.enable")}
+            description="Monitor disk space and send alerts"
+            enabled={form.enabled}
+            onChange={(enabled) => setForm((prev) => ({ ...prev, enabled }))}
+            icon={<HardDrive size={18} />}
+          />
 
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -776,18 +1100,13 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
         <div className="panel space-y-4">
           <h4 className="panel-title">{t("tools.disk.configureDrive", { drive: selectedDrive })}</h4>
           <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id={`monitor-${selectedDrive}`}
-                checked={selectedDriveConfig?.enabled ?? false}
-                onChange={(e) => updateDriveConfig(selectedDrive, { enabled: e.target.checked })}
-                className="checkbox"
-              />
-              <label htmlFor={`monitor-${selectedDrive}`} className="text-sm text-slate-300">
-                {t("tools.disk.enableDrive")}
-              </label>
-            </div>
+            <ToggleBar
+              label={t("tools.disk.enableDrive")}
+              description={`Monitor ${selectedDrive} drive`}
+              enabled={selectedDriveConfig?.enabled ?? false}
+              onChange={(enabled) => updateDriveConfig(selectedDrive, { enabled })}
+              icon={<HardDrive size={18} />}
+            />
 
             {(selectedDriveConfig?.enabled ?? false) && (
               <div className="space-y-4 pl-6 border-l-2 border-slate-800">
@@ -902,21 +1221,21 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
           <div className="space-y-3">
             {Array.isArray(form.folderMonitors) && form.folderMonitors.map((monitor, index) => (
               <div key={index} className="p-4 border border-slate-800 rounded-lg space-y-3">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={monitor.enabled}
-                    onChange={(e) => {
+                <div className="flex items-center justify-between">
+                  <ToggleBar
+                    label={t("tools.disk.enableFolder")}
+                    description={formatPath(monitor.path) || "Folder monitor"}
+                    enabled={monitor.enabled}
+                    onChange={(enabled) => {
                       setForm((prev) => ({
                         ...prev,
-                        folderMonitors: Array.isArray(prev.folderMonitors) ? prev.folderMonitors.map((m, i) => i === index ? { ...m, enabled: e.target.checked } : m) : []
+                        folderMonitors: Array.isArray(prev.folderMonitors) ? prev.folderMonitors.map((m, i) => i === index ? { ...m, enabled } : m) : []
                       }));
                     }}
-                    className="checkbox"
+                    icon={<FolderOpen size={18} />}
                   />
-                  <label className="text-sm text-slate-300">{t("tools.disk.enableFolder")}</label>
                   <button
-                    className="ml-auto icon-btn text-red-400"
+                    className="icon-btn text-red-400"
                     onClick={() => {
                       setForm((prev) => ({
                         ...prev,
@@ -924,7 +1243,7 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
                       }));
                     }}
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={16} />
                   </button>
                 </div>
 
@@ -1164,18 +1483,13 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
         </div>
 
         <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="enableAppMonitoring"
-              checked={form.enabled}
-              onChange={(e) => setForm((prev) => ({ ...prev, enabled: e.target.checked }))}
-              className="checkbox"
-            />
-            <label htmlFor="enableAppMonitoring" className="text-sm text-slate-300">
-              {t("tools.app.enable")}
-            </label>
-          </div>
+          <ToggleBar
+            label={t("tools.app.enable")}
+            description="Monitor application status"
+            enabled={form.enabled}
+            onChange={(enabled) => setForm((prev) => ({ ...prev, enabled }))}
+            icon={<Monitor size={18} />}
+          />
 
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -1214,49 +1528,42 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
                 {Array.isArray(form.applications) && form.applications.map((app) => {
                   const isExpanded = expandedApps.has(app.id);
                   return (
-                    <div key={app.id} className="border border-slate-800 rounded-lg">
+                    <div key={app.id} className="border border-slate-800 rounded-lg p-3 space-y-3">
                       {/* Compact Header - Always Visible */}
-                      <div className="flex items-center gap-2 p-2 bg-slate-900/30 hover:bg-slate-900/50">
-                        <input
-                          type="checkbox"
-                          checked={app.enabled}
-                          onChange={(e) => updateApplication(app.id, { enabled: e.target.checked })}
-                          className="checkbox"
-                          onClick={(e) => e.stopPropagation()}
+                      <div className="flex items-center justify-between">
+                        <ToggleBar
+                          label={app.name || t("tools.app.namePlaceholder")}
+                          description={`Check: ${app.checkIntervalSeconds}s | Restart: ${app.restartDelaySeconds}s`}
+                          enabled={app.enabled}
+                          onChange={(enabled) => updateApplication(app.id, { enabled })}
+                          icon={<Monitor size={18} />}
                         />
-                        <span className="flex-1 text-sm font-medium text-slate-200 min-w-0 truncate">
-                          {app.name || t("tools.app.namePlaceholder")}
-                        </span>
-                        <span className="text-xs text-slate-400">
-                          {t("tools.app.checkInterval")}: {app.checkIntervalSeconds}s
-                        </span>
-                        <span className="text-xs text-slate-400">
-                          {t("tools.app.restartDelay")}: {app.restartDelaySeconds}s
-                        </span>
-                        <button
-                          className="icon-btn text-slate-400 hover:text-white"
-                          onClick={() => {
-                            setExpandedApps(prev => {
-                              const next = new Set(prev);
-                              if (next.has(app.id)) {
-                                next.delete(app.id);
-                              } else {
-                                next.add(app.id);
-                              }
-                              return next;
-                            });
-                          }}
-                          title={isExpanded ? "Collapse" : "Expand"}
-                        >
-                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                        </button>
-                        <button
-                          className="icon-btn text-red-400 hover:text-red-300"
-                          onClick={() => removeApplication(app.id)}
-                          title="Delete"
-                        >
-                          <Trash2 size={14} />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            className="icon-btn text-slate-400 hover:text-white"
+                            onClick={() => {
+                              setExpandedApps(prev => {
+                                const next = new Set(prev);
+                                if (next.has(app.id)) {
+                                  next.delete(app.id);
+                                } else {
+                                  next.add(app.id);
+                                }
+                                return next;
+                              });
+                            }}
+                            title={isExpanded ? "Collapse" : "Expand"}
+                          >
+                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          </button>
+                          <button
+                            className="icon-btn text-red-400 hover:text-red-300"
+                            onClick={() => removeApplication(app.id)}
+                            title="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Expanded Content - Only when expanded */}
@@ -1549,6 +1856,9 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [password, setPassword] = useState("");
+  const [vncProfiles, setVncProfiles] = useState<VncServerProfile[]>([]);
+  const [editingProfile, setEditingProfile] = useState<VncServerProfile | null>(null);
+  const [showProfileDialog, setShowProfileDialog] = useState(false);
 
   const { data: config } = useSWR<VncConfig>("vnc-config", () => api<VncConfig>("/api/vnc/config"));
   const { data: status, mutate: mutateStatus } = useSWR<VncStatus>("vnc-status", () => api<VncStatus>("/api/vnc/status"), {
@@ -1561,6 +1871,52 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
   useEffect(() => {
     mutateStatus();
   }, [mutateStatus]);
+
+  // Load VNC profiles from localStorage
+  useEffect(() => {
+    const savedProfiles = localStorage.getItem('weasel.vnc.profiles');
+    if (savedProfiles) {
+      try {
+        const profiles = JSON.parse(savedProfiles);
+
+        // Migration: Rename "Weasel Internal VNC Server" to "Weasel VNC Server"
+        const migratedProfiles = profiles.map((profile: VncServerProfile) => {
+          if (profile.isDefault && profile.name === "Weasel Internal VNC Server") {
+            return { ...profile, name: "Weasel VNC Server" };
+          }
+          return profile;
+        });
+
+        // Save migrated profiles back to localStorage if changes were made
+        if (JSON.stringify(profiles) !== JSON.stringify(migratedProfiles)) {
+          localStorage.setItem('weasel.vnc.profiles', JSON.stringify(migratedProfiles));
+        }
+
+        setVncProfiles(migratedProfiles);
+      } catch (err) {
+        console.error('Failed to load VNC profiles:', err);
+      }
+    }
+
+    // Create default profile for internal VNC server
+    if (!savedProfiles || JSON.parse(savedProfiles).length === 0) {
+      const defaultProfile: VncServerProfile = {
+        id: generateUUID(),
+        name: "Weasel VNC Server",
+        server: status?.allowRemote ? window.location.hostname : "127.0.0.1",
+        port: config?.port || 5900,
+        viewOnly: false,
+        shared: true,
+        encrypt: false,
+        resize: false,
+        quality: 6,
+        compression: 2,
+        isDefault: true
+      };
+      setVncProfiles([defaultProfile]);
+      localStorage.setItem('weasel.vnc.profiles', JSON.stringify([defaultProfile]));
+    }
+  }, [config, status]);
 
   const handleStart = async () => {
     setIsStarting(true);
@@ -1588,45 +1944,141 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
     }
   };
 
-  const handleConnect = () => {
-    if (!status || !config) return;
+  const handleConnectProfile = async (profile: VncServerProfile) => {
+    console.log('[VNC] Connecting to profile:', profile.name, profile);
 
-    const host = status.allowRemote ? window.location.hostname : "127.0.0.1";
-    const port = status.port;
+    // Get password - for internal server, use configured password automatically
+    let connectPassword = profile.password;
 
-    // Get password - use from input field, or prompt if required but not provided
-    let connectPassword = password;
-    if (config.hasPassword && !connectPassword) {
-      const enteredPassword = prompt("VNC server requires a password. Please enter the password:");
-      if (!enteredPassword) {
-        showToast("Password is required to connect to the VNC server.", "error");
-        return; // User cancelled
+    // If it's the default (internal) VNC server and no password in profile, fetch the configured server password
+    if (profile.isDefault && !connectPassword && config?.hasPassword) {
+      try {
+        console.log('[VNC] Fetching password for default profile');
+        const response = await api<{ password: string }>("/api/vnc/password");
+        connectPassword = response.password;
+        console.log('[VNC] Password fetched successfully');
+      } catch (error) {
+        console.error("Failed to fetch VNC password:", error);
+        showToast("Failed to retrieve VNC server password", "error");
+        return;
       }
-      connectPassword = enteredPassword;
-      setPassword(enteredPassword); // Store it for next time
+    } else if (!profile.isDefault && !connectPassword) {
+      // For external profiles, prompt for password
+      console.log('[VNC] Prompting for password for non-default profile');
+      const enteredPassword = prompt(`Enter password for ${profile.name} (leave empty if no password):`);
+      if (enteredPassword) {
+        connectPassword = enteredPassword;
+        console.log('[VNC] Password entered');
+      } else {
+        console.log('[VNC] No password entered');
+      }
+    }
+
+    console.log('[VNC] Password available:', !!connectPassword);
+    console.log('[VNC] Password length:', connectPassword?.length || 0);
+    // Log first and last character only for debugging (security)
+    if (connectPassword && connectPassword.length > 0) {
+      console.log('[VNC] Password check (first/last char):',
+        connectPassword.charAt(0),
+        connectPassword.charAt(connectPassword.length - 1));
     }
 
     // Store connection params in localStorage for the popup
-    localStorage.setItem("vnc_host", host);
-    localStorage.setItem("vnc_port", port.toString());
+    localStorage.setItem("vnc_host", profile.server);
+    localStorage.setItem("vnc_port", profile.port.toString());
+    localStorage.setItem("vnc_viewOnly", profile.viewOnly.toString());
+    localStorage.setItem("vnc_shared", profile.shared.toString());
+    localStorage.setItem("vnc_quality", profile.quality.toString());
+    localStorage.setItem("vnc_compression", profile.compression.toString());
     if (connectPassword) {
       localStorage.setItem("vnc_password", connectPassword);
     } else {
       localStorage.removeItem("vnc_password");
     }
 
+    // Build URL with all parameters
+    const params = new URLSearchParams();
+    params.set('host', profile.server);
+    params.set('port', profile.port.toString());
+    params.set('viewOnly', profile.viewOnly.toString());
+    params.set('shared', profile.shared.toString());
+    params.set('quality', profile.quality.toString());
+    params.set('compression', profile.compression.toString());
+    params.set('profileId', profile.id);
+    params.set('profileName', profile.name);
+    if (connectPassword) {
+      // URLSearchParams.set() already handles encoding, no need for encodeURIComponent
+      params.set('password', connectPassword);
+    }
+
     // Open popup window with VNC viewer
-    const viewerUrl = `/vnc-viewer?host=${encodeURIComponent(host)}&port=${port}${connectPassword ? `&password=${encodeURIComponent(connectPassword)}` : ""}`;
+    const viewerUrl = `/vnc-viewer?${params.toString()}`;
+    console.log('[VNC] Opening popup with URL:', viewerUrl);
 
     const popup = window.open(
       viewerUrl,
-      "VNC Viewer",
+      `VNC Viewer - ${profile.name}`,
       `width=${screen.width},height=${screen.height},fullscreen=yes,resizable=yes,scrollbars=no`
     );
 
-    if (!popup) {
+    console.log('[VNC] Popup opened:', !!popup, 'closed:', popup?.closed);
+
+    if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+      console.error('[VNC] Popup blocked or failed to open');
       showToast("Popup blocked. Please allow popups for this site to connect to VNC.", "error");
+    } else {
+      console.log('[VNC] Connection successful');
     }
+  };
+
+  const handleAddProfile = () => {
+    const newProfile: VncServerProfile = {
+      id: generateUUID(),
+      name: "New VNC Server",
+      server: "localhost",
+      port: 5900,
+      viewOnly: false,
+      shared: false,
+      encrypt: false,
+      resize: false,
+      quality: 6,
+      compression: 2,
+      isDefault: false
+    };
+    setEditingProfile(newProfile);
+    setShowProfileDialog(true);
+  };
+
+  const handleEditProfile = (profile: VncServerProfile) => {
+    setEditingProfile({ ...profile });
+    setShowProfileDialog(true);
+  };
+
+  const handleSaveProfile = () => {
+    if (!editingProfile) return;
+
+    const updatedProfiles = vncProfiles.find(p => p.id === editingProfile.id)
+      ? vncProfiles.map(p => p.id === editingProfile.id ? editingProfile : p)
+      : [...vncProfiles, editingProfile];
+
+    setVncProfiles(updatedProfiles);
+    localStorage.setItem('weasel.vnc.profiles', JSON.stringify(updatedProfiles));
+    setShowProfileDialog(false);
+    setEditingProfile(null);
+    showToast("VNC profile saved successfully", "success");
+  };
+
+  const handleDeleteProfile = (profileId: string) => {
+    const profile = vncProfiles.find(p => p.id === profileId);
+    if (profile?.isDefault) {
+      showToast("Cannot delete the default internal VNC server profile", "error");
+      return;
+    }
+
+    const updatedProfiles = vncProfiles.filter(p => p.id !== profileId);
+    setVncProfiles(updatedProfiles);
+    localStorage.setItem('weasel.vnc.profiles', JSON.stringify(updatedProfiles));
+    showToast("VNC profile deleted successfully", "success");
   };
 
   if (!config) {
@@ -1677,26 +2129,304 @@ function RemoteDesktopTab({ t }: { t: TranslateFn }) {
               </button>
             ) : (
               <button
-                className="btn-primary flex-1"
-                onClick={handleConnect}
-                disabled={!status.isRunning}
+                className="btn-outline flex-1"
+                onClick={handleStop}
+                disabled={isStarting || isStopping}
               >
-                <EyeIcon size={16} /> Connect
+                {isStopping ? t("tools.vnc.stopping") : t("tools.vnc.stop")}
               </button>
             )}
-            <button
-              className="btn-outline flex-1"
-              onClick={handleStop}
-              disabled={isStarting || isStopping || !status?.isRunning}
-            >
-              {isStopping ? t("tools.vnc.stopping") : t("tools.vnc.stop")}
-            </button>
             <button className="btn-outline" onClick={() => mutateStatus()}>
               <RefreshCw size={16} />
             </button>
           </div>
         </div>
       </div>
+
+      {/* VNC Server Profiles */}
+      <div className="panel space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="panel-title mb-0">VNC Server Profiles</h3>
+          <button className="btn-outline text-xs" onClick={handleAddProfile}>
+            <Monitor size={14} /> Add Profile
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {vncProfiles.map((profile) => (
+            <div
+              key={profile.id}
+              className={`p-4 rounded-lg border transition-colors ${
+                profile.isDefault
+                  ? "border-sky-500/50 bg-sky-900/20"
+                  : "border-slate-800 bg-slate-900/30"
+              }`}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-white truncate">{profile.name}</h4>
+                  {profile.isDefault && (
+                    <span className="text-xs text-sky-400 bg-sky-900/30 px-2 py-0.5 rounded mt-1 inline-block">
+                      Default
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-1 ml-2">
+                  <button
+                    className="icon-btn text-slate-400 hover:text-white"
+                    onClick={() => handleEditProfile(profile)}
+                    title="Edit"
+                  >
+                    <Edit2 size={14} />
+                  </button>
+                  {!profile.isDefault && (
+                    <button
+                      className="icon-btn text-red-400 hover:text-red-300"
+                      onClick={() => handleDeleteProfile(profile.id)}
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between text-slate-400">
+                  <span>Server:</span>
+                  <span className="text-white font-mono truncate ml-2">{profile.server}:{profile.port}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>View Only:</span>
+                  <span className={profile.viewOnly ? "text-green-400" : "text-slate-500"}>
+                    {profile.viewOnly ? "Yes" : "No"}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Shared:</span>
+                  <span className={profile.shared ? "text-green-400" : "text-slate-500"}>
+                    {profile.shared ? "Yes" : "No"}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Quality:</span>
+                  <span className="text-white">{profile.quality}</span>
+                </div>
+                <div className="flex justify-between text-slate-400">
+                  <span>Compression:</span>
+                  <span className="text-white">{profile.compression}</span>
+                </div>
+                {profile.encrypt && (
+                  <div className="flex items-center gap-1 text-green-400 text-xs">
+                    <Shield size={12} />
+                    <span>Encrypted</span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                className="btn-primary w-full mt-3"
+                onClick={() => {
+                  handleConnectProfile(profile).catch(err => {
+                    console.error('[VNC] Connection error:', err);
+                    showToast(`Failed to connect: ${err instanceof Error ? err.message : String(err)}`, 'error');
+                  });
+                }}
+              >
+                <EyeIcon size={14} /> Connect
+              </button>
+            </div>
+          ))}
+
+          {vncProfiles.length === 0 && (
+            <div className="col-span-full text-center py-8 text-slate-400">
+              <Monitor size={48} className="mx-auto mb-4 opacity-50" />
+              <p>No VNC server profiles configured</p>
+              <p className="text-sm text-slate-500 mt-1">Click "Add Profile" to create one</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Profile Edit Dialog */}
+      {showProfileDialog && editingProfile && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                {vncProfiles.find(p => p.id === editingProfile.id) ? "Edit" : "Add"} VNC Server Profile
+              </h3>
+              <button
+                className="text-slate-400 hover:text-white"
+                onClick={() => {
+                  setShowProfileDialog(false);
+                  setEditingProfile(null);
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1">Profile Name</label>
+                <input
+                  type="text"
+                  className="input-text w-full"
+                  value={editingProfile.name}
+                  onChange={(e) => setEditingProfile({ ...editingProfile, name: e.target.value })}
+                  placeholder="My VNC Server"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Server/IP</label>
+                  <input
+                    type="text"
+                    className="input-text w-full"
+                    value={editingProfile.server}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, server: e.target.value })}
+                    placeholder="localhost or 192.168.1.100"
+                    disabled={editingProfile.isDefault}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Port</label>
+                  <input
+                    type="number"
+                    className="input-text w-full"
+                    value={editingProfile.port}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, port: parseInt(e.target.value) || 5900 })}
+                    disabled={editingProfile.isDefault}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="viewOnly"
+                    className="checkbox"
+                    checked={editingProfile.viewOnly}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, viewOnly: e.target.checked })}
+                  />
+                  <label htmlFor="viewOnly" className="text-sm text-slate-300">View Only</label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="shared"
+                    className="checkbox"
+                    checked={editingProfile.shared}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, shared: e.target.checked })}
+                  />
+                  <label htmlFor="shared" className="text-sm text-slate-300">Shared</label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="encrypt"
+                    className="checkbox"
+                    checked={editingProfile.encrypt}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, encrypt: e.target.checked })}
+                  />
+                  <label htmlFor="encrypt" className="text-sm text-slate-300">Encrypt</label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id="resize"
+                    className="checkbox"
+                    checked={editingProfile.resize}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, resize: e.target.checked })}
+                  />
+                  <label htmlFor="resize" className="text-sm text-slate-300">Resize</label>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Quality (0-9)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="9"
+                    className="input-text w-full"
+                    value={editingProfile.quality}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, quality: Math.min(9, Math.max(0, parseInt(e.target.value) || 0)) })}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">0 = best quality, 9 = best compression</p>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">Compression (0-9)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="9"
+                    className="input-text w-full"
+                    value={editingProfile.compression}
+                    onChange={(e) => setEditingProfile({ ...editingProfile, compression: Math.min(9, Math.max(0, parseInt(e.target.value) || 0)) })}
+                  />
+                  <p className="text-xs text-slate-500 mt-1">0 = no compression, 9 = max compression</p>
+                </div>
+              </div>
+
+              {!editingProfile.isDefault && (
+                <>
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">Repeater ID (optional)</label>
+                    <input
+                      type="text"
+                      className="input-text w-full"
+                      value={editingProfile.repeaterId || ""}
+                      onChange={(e) => setEditingProfile({ ...editingProfile, repeaterId: e.target.value || undefined })}
+                      placeholder="ID:1234567890"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm text-slate-400 mb-1">Password (optional)</label>
+                    <input
+                      type="password"
+                      className="input-text w-full"
+                      value={editingProfile.password || ""}
+                      onChange={(e) => setEditingProfile({ ...editingProfile, password: e.target.value || undefined })}
+                      placeholder="Leave empty to prompt on connect"
+                    />
+                  </div>
+                </>
+              )}
+              {editingProfile.isDefault && (
+                <div className="bg-blue-900/20 border border-blue-500/50 rounded-lg p-3">
+                  <p className="text-sm text-blue-200">
+                    <strong>Note:</strong> This is the internal Weasel VNC Server. Server, port, and password settings are managed in Settings → VNC.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-4">
+                <button className="btn-primary flex-1" onClick={handleSaveProfile}>
+                  <Save size={16} /> Save Profile
+                </button>
+                <button
+                  className="btn-outline flex-1"
+                  onClick={() => {
+                    setShowProfileDialog(false);
+                    setEditingProfile(null);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <VncLogPanel t={t} />
     </div>

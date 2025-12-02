@@ -201,6 +201,13 @@ export async function closeTerminal(id: string): Promise<void> {
 // UI Preferences API functions
 export interface UiPreferences {
   logPanelExpanded: Record<string, boolean>;
+  language: string;
+  screenshotsFolderPageSize: number;
+  filesFolderPageSize: number;
+  filesFilesPageSize: number;
+  packagesPageSize: number;
+  defaultTextPageSize?: number;
+  defaultImagePageSize?: number;
 }
 
 export async function getUiPreferences(): Promise<UiPreferences> {
@@ -214,3 +221,22 @@ export async function saveUiPreferences(preferences: UiPreferences): Promise<UiP
   });
 }
 
+// File Explorer Settings API functions
+export async function getFileExplorerSettings(): Promise<import("../types").FileExplorerConfig> {
+  return api<import("../types").FileExplorerConfig>("/api/settings/file-explorer");
+}
+
+export async function saveFileExplorerSettings(config: import("../types").FileExplorerConfig): Promise<import("../types").FileExplorerConfig> {
+  return api<import("../types").FileExplorerConfig>("/api/settings/file-explorer", {
+    method: "PUT",
+    body: JSON.stringify(config)
+  });
+}
+
+// Helper function to get default page size from preferences
+export function getDefaultPageSize(type: 'text' | 'image', preferences?: UiPreferences): number {
+  if (type === 'text') {
+    return preferences?.defaultTextPageSize ?? 50;
+  }
+  return preferences?.defaultImagePageSize ?? 25;
+}

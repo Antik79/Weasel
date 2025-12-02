@@ -6,6 +6,7 @@ import { getAuthToken } from "../components/Login";
 import { LogsResponse, LogFileInfo } from "../types";
 import { formatBytes, formatDate } from "../utils/format";
 import { useTranslation } from "../i18n/i18n";
+import Pagination from "../components/Pagination";
 
 const logsFetcher = (subfolder?: string) => {
   const url = new URL("/api/logs", window.location.origin);
@@ -37,6 +38,18 @@ export default function Logs() {
   const [logLeftPanelWidth, setLogLeftPanelWidth] = useState(33);
   const [isLogResizing, setIsLogResizing] = useState(false);
   const logContainerRef = useRef<HTMLDivElement>(null);
+
+  // Pagination state
+  const [logFoldersPageSize, setLogFoldersPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('weasel.logs.foldersPageSize');
+    return saved ? parseInt(saved) : 50;
+  });
+  const [logFoldersPage, setLogFoldersPage] = useState<number>(1);
+  const [logFilesPageSize, setLogFilesPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('weasel.logs.filesPageSize');
+    return saved ? parseInt(saved) : 50;
+  });
+  const [logFilesPage, setLogFilesPage] = useState<number>(1);
   
   const {
     data: logsResponse,
@@ -149,6 +162,22 @@ export default function Logs() {
     });
   }, [filteredLogFiles, logSortConfig]);
 
+  // Apply pagination to folders
+  const paginatedLogFolders = useMemo(() => {
+    if (logFoldersPageSize === 0) return sortedLogFolders;
+    const start = (logFoldersPage - 1) * logFoldersPageSize;
+    const end = start + logFoldersPageSize;
+    return sortedLogFolders.slice(start, end);
+  }, [sortedLogFolders, logFoldersPageSize, logFoldersPage]);
+
+  // Apply pagination to files
+  const paginatedLogFiles = useMemo(() => {
+    if (logFilesPageSize === 0) return sortedLogFiles;
+    const start = (logFilesPage - 1) * logFilesPageSize;
+    const end = start + logFilesPageSize;
+    return sortedLogFiles.slice(start, end);
+  }, [sortedLogFiles, logFilesPageSize, logFilesPage]);
+
   const handleLogSort = (key: 'name' | 'size' | 'date') => {
     setLogSortConfig(current => ({
       key,
@@ -161,6 +190,19 @@ export default function Logs() {
       key,
       direction: current.key === key && current.direction === 'asc' ? 'desc' : 'asc'
     }));
+  };
+
+  // Pagination handlers
+  const handleLogFoldersPageSizeChange = (size: number) => {
+    setLogFoldersPageSize(size);
+    setLogFoldersPage(1);
+    localStorage.setItem('weasel.logs.foldersPageSize', size.toString());
+  };
+
+  const handleLogFilesPageSizeChange = (size: number) => {
+    setLogFilesPageSize(size);
+    setLogFilesPage(1);
+    localStorage.setItem('weasel.logs.filesPageSize', size.toString());
   };
 
   const startLogResizing = () => {
@@ -236,10 +278,10 @@ export default function Logs() {
             </div>
             <div className="divide-y divide-slate-800 overflow-y-auto flex-1 pr-2">
               {logsLoading && <p className="py-4 text-sm text-slate-400">Loading…</p>}
-              {!logsLoading && sortedLogFolders.length === 0 && (
+              {!logsLoading && paginatedLogFolders.length === 0 && (
                 <p className="py-4 text-sm text-slate-400">No folders</p>
               )}
-              {!logsLoading && sortedLogFolders.map((folder) => {
+              {!logsLoading && paginatedLogFolders.map((folder) => {
                 const isArchive = folder.toLowerCase().includes('archive');
                 const folderName = folder.split('/').pop() || folder;
                 return (
@@ -262,6 +304,13 @@ export default function Logs() {
                 );
               })}
             </div>
+            <Pagination
+              currentPage={logFoldersPage}
+              totalItems={sortedLogFolders.length}
+              pageSize={logFoldersPageSize}
+              onPageChange={setLogFoldersPage}
+              onPageSizeChange={handleLogFoldersPageSizeChange}
+            />
           </div>
 
           {/* Resizer */}
@@ -305,10 +354,10 @@ export default function Logs() {
 
             <div className="divide-y divide-slate-800 overflow-y-auto flex-1 pr-2">
               {logsLoading && <p className="py-4 text-sm text-slate-400">Loading…</p>}
-              {!logsLoading && sortedLogFiles.length === 0 && (
+              {!logsLoading && paginatedLogFiles.length === 0 && (
                 <p className="py-4 text-sm text-slate-400">{logSearchQuery ? "No files match your search" : "No log files"}</p>
               )}
-              {!logsLoading && sortedLogFiles.map((file) => (
+              {!logsLoading && paginatedLogFiles.map((file) => (
                 <div
                   key={file.name}
                   className={`item-row hover:bg-slate-800/50 cursor-pointer group ${selectedLog === file.name ? "bg-slate-800/70" : ""
@@ -339,6 +388,13 @@ export default function Logs() {
                 </div>
               ))}
             </div>
+            <Pagination
+              currentPage={logFilesPage}
+              totalItems={sortedLogFiles.length}
+              pageSize={logFilesPageSize}
+              onPageChange={setLogFilesPage}
+              onPageSizeChange={handleLogFilesPageSizeChange}
+            />
           </div>
         </div>
 

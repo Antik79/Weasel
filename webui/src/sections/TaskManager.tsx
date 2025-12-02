@@ -7,6 +7,7 @@ import { formatBytes, formatDate } from "../utils/format";
 import Table, { TableColumn } from "../components/Table";
 import { showToast } from "../App";
 import ConfirmDialog from "../components/ConfirmDialog";
+import Pagination from "../components/Pagination";
 
 // UUID generator with polyfill for environments without crypto.randomUUID
 const generateUUID = (): string => {
@@ -39,17 +40,37 @@ export default function TaskManager() {
     variant: "info"
   });
   const [processToKill, setProcessToKill] = useState<number | null>(null);
+
+  // Pagination state
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const saved = localStorage.getItem('weasel.taskManager.pageSize');
+    return saved ? parseInt(saved) : 50;
+  });
+  const [currentPage, setCurrentPage] = useState<number>(1);
   const { data, isLoading, mutate } = useSWR("processes", fetcher, {
     refreshInterval: 5000
   });
 
-  const processes = useMemo(() => {
+  const filteredProcesses = useMemo(() => {
     if (!data || !Array.isArray(data)) return [];
     if (!query) return data;
     return data.filter((proc) =>
       proc.name.toLowerCase().includes(query.toLowerCase())
     );
   }, [data, query]);
+
+  const paginatedProcesses = useMemo(() => {
+    if (pageSize === 0) return filteredProcesses;
+    const start = (currentPage - 1) * pageSize;
+    const end = start + pageSize;
+    return filteredProcesses.slice(start, end);
+  }, [filteredProcesses, pageSize, currentPage]);
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1);
+    localStorage.setItem('weasel.taskManager.pageSize', size.toString());
+  };
 
   const kill = async (pid: number) => {
     setProcessToKill(pid);
@@ -203,12 +224,26 @@ export default function TaskManager() {
         />
       </div>
       <Table
-        data={processes}
+        data={paginatedProcesses}
         columns={columns}
         keyExtractor={(p) => p.id}
         isLoading={isLoading}
         emptyMessage="No processes match your filter."
-        maxHeight="max-h-80"
+      />
+      <Pagination
+        currentPage={currentPage}
+        totalItems={filteredProcesses.length}
+        pageSize={pageSize}
+        onPageChange={setCurrentPage}
+        onPageSizeChange={handlePageSizeChange}
+      />
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        onConfirm={confirmDialog.onConfirm}
+        onCancel={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        variant={confirmDialog.variant}
       />
     </section>
   );

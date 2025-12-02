@@ -41,6 +41,7 @@ public sealed class SettingsStore : ISettingsStore
 
             var captureNode = WeaselHostNode["Capture"] as JsonObject ?? new JsonObject();
             captureNode["Folder"] = options.Folder;
+            captureNode["TimedFolder"] = options.TimedFolder;
             captureNode["FileNamePattern"] = options.FileNamePattern;
             captureNode["EnableIntervalCapture"] = options.EnableIntervalCapture;
             captureNode["IntervalSeconds"] = options.IntervalSeconds;
@@ -288,6 +289,17 @@ public sealed class SettingsStore : ISettingsStore
             loggingNode["ComponentEnabled"] = componentEnabledNode;
         }
 
+        // Save component-specific minimum log levels
+        if (options.ComponentLevels != null && options.ComponentLevels.Count > 0)
+        {
+            var componentLevelsNode = new JsonObject();
+            foreach (var kvp in options.ComponentLevels)
+            {
+                componentLevelsNode[kvp.Key] = kvp.Value.ToString();
+            }
+            loggingNode["ComponentLevels"] = componentLevelsNode;
+        }
+
         weaselHostNode["Logging"] = loggingNode;
 
         var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -356,6 +368,58 @@ public sealed class SettingsStore : ISettingsStore
         }
     }
 
+    public async Task SaveVncRecordingSettingsAsync(VncRecordingOptions options, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Saving VNC recording settings: RootFolder={RootFolder}, MaxDuration={MaxDuration}m, Retention={Retention}d",
+                options.RootFolder, options.MaxRecordingDurationMinutes, options.RetentionDays);
+
+            JsonNode root;
+            if (File.Exists(_configPath))
+            {
+                await using var stream = File.OpenRead(_configPath);
+                var jsonDocOptions = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+                root = await JsonNode.ParseAsync(stream, nodeOptions: null, jsonDocOptions, cancellationToken) ?? new JsonObject();
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            var weaselHostNode = root["WeaselHost"] as JsonObject ?? new JsonObject();
+            root["WeaselHost"] = weaselHostNode;
+
+            var vncNode = weaselHostNode["Vnc"] as JsonObject ?? new JsonObject();
+            weaselHostNode["Vnc"] = vncNode;
+
+            var recordingNode = vncNode["Recording"] as JsonObject ?? new JsonObject();
+            recordingNode["RootFolder"] = options.RootFolder;
+            recordingNode["MaxRecordingDurationMinutes"] = options.MaxRecordingDurationMinutes;
+            recordingNode["RetentionDays"] = options.RetentionDays;
+            recordingNode["EnableMotionDetection"] = options.EnableMotionDetection;
+            recordingNode["MotionDetectionThresholdPercent"] = options.MotionDetectionThresholdPercent;
+            recordingNode["MotionDetectionBlockSize"] = options.MotionDetectionBlockSize;
+            recordingNode["RecordingFps"] = options.RecordingFps;
+            recordingNode["UseProfileSubfolders"] = options.UseProfileSubfolders;
+            vncNode["Recording"] = recordingNode;
+
+            var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
+            await File.WriteAllTextAsync(_configPath, json, cancellationToken);
+            // Force flush by writing again and waiting longer
+            await File.WriteAllTextAsync(_configPath, json, CancellationToken.None);
+            await Task.Delay(500, CancellationToken.None); // Give more time for file system and config reload
+
+            _logger.LogInformation("VNC recording settings saved successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save VNC recording settings");
+            throw;
+        }
+    }
+
     public async Task SaveUiPreferencesAsync(UiPreferencesOptions options, CancellationToken cancellationToken = default)
     {
         try
@@ -380,6 +444,11 @@ public sealed class SettingsStore : ISettingsStore
 
             var uiPrefsNode = weaselHostNode["UiPreferences"] as JsonObject ?? new JsonObject();
             uiPrefsNode["LogPanelExpanded"] = JsonNode.Parse(JsonSerializer.Serialize(options.LogPanelExpanded)) ?? new JsonObject();
+            uiPrefsNode["Language"] = options.Language;
+            uiPrefsNode["ScreenshotsFolderPageSize"] = options.ScreenshotsFolderPageSize;
+            uiPrefsNode["FilesFolderPageSize"] = options.FilesFolderPageSize;
+            uiPrefsNode["FilesFilesPageSize"] = options.FilesFilesPageSize;
+            uiPrefsNode["PackagesPageSize"] = options.PackagesPageSize;
 
             weaselHostNode["UiPreferences"] = uiPrefsNode;
 
@@ -395,6 +464,47 @@ public sealed class SettingsStore : ISettingsStore
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save UI preferences");
+            throw;
+        }
+    }
+
+    public async Task SaveFileExplorerSettingsAsync(FileExplorerOptions options, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            _logger.LogInformation("Saving File Explorer settings: HomeFolder={HomeFolder}", options.HomeFolder);
+
+            JsonNode root;
+            if (File.Exists(_configPath))
+            {
+                await using var stream = File.OpenRead(_configPath);
+                var jsonDocOptions = new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip };
+                root = await JsonNode.ParseAsync(stream, nodeOptions: null, jsonDocOptions, cancellationToken) ?? new JsonObject();
+            }
+            else
+            {
+                root = new JsonObject();
+            }
+
+            var weaselHostNode = root["WeaselHost"] as JsonObject ?? new JsonObject();
+            root["WeaselHost"] = weaselHostNode;
+
+            var fileExplorerNode = weaselHostNode["FileExplorer"] as JsonObject ?? new JsonObject();
+            fileExplorerNode["HomeFolder"] = options.HomeFolder;
+            weaselHostNode["FileExplorer"] = fileExplorerNode;
+
+            var json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            Directory.CreateDirectory(Path.GetDirectoryName(_configPath)!);
+            await File.WriteAllTextAsync(_configPath, json, cancellationToken);
+            // Force flush by writing again and waiting longer
+            await File.WriteAllTextAsync(_configPath, json, CancellationToken.None);
+            await Task.Delay(500, CancellationToken.None); // Give more time for file system and config reload
+
+            _logger.LogInformation("File Explorer settings saved successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save File Explorer settings");
             throw;
         }
     }

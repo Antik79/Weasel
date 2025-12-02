@@ -634,6 +634,17 @@ public static class Program
             await Task.Delay(500, cancellationToken);
             return Results.Ok(optionsMonitor.CurrentValue.UiPreferences);
         });
+
+        group.MapGet("/file-explorer", (IOptionsMonitor<WeaselHostOptions> options) =>
+            Results.Ok(options.CurrentValue.FileExplorer));
+
+        group.MapPut("/file-explorer", async (FileExplorerOptions request, ISettingsStore settingsStore, IOptionsMonitor<WeaselHostOptions> optionsMonitor, CancellationToken cancellationToken) =>
+        {
+            await settingsStore.SaveFileExplorerSettingsAsync(request, cancellationToken);
+            // Wait a bit for config to reload
+            await Task.Delay(500, cancellationToken);
+            return Results.Ok(optionsMonitor.CurrentValue.FileExplorer);
+        });
     }
 
     private static void MapLogEndpoints(RouteGroupBuilder group)
@@ -867,6 +878,12 @@ public static class Program
             });
         });
 
+        group.MapGet("/password", (IOptionsMonitor<WeaselHostOptions> options) =>
+        {
+            var vnc = options.CurrentValue.Vnc;
+            return Results.Ok(new { password = vnc.Password ?? "" });
+        });
+
         group.MapPut("/config", async (VncConfigRequest request, ISettingsStore settingsStore, IOptionsMonitor<WeaselHostOptions> optionsMonitor, IVncService vncService, CancellationToken cancellationToken) =>
         {
             var currentVnc = optionsMonitor.CurrentValue.Vnc;
@@ -966,31 +983,145 @@ public static class Program
             var targetHost = query["host"].ToString();
             var targetPortStr = query["port"].ToString();
 
+            // Determine if this is a connection to the internal Weasel VNC server or an external server
             var status = await vncService.GetStatusAsync();
-            if (!status.IsRunning)
-            {
-                logger.LogWarning("VNC WebSocket connection attempted but server is not running");
-                return Results.BadRequest("VNC server is not running");
-            }
+            string vncHost;
+            int vncPort;
 
-            // Use localhost for the VNC server connection since it's on the same machine
-            // The targetHost from query is for display purposes only
-            var vncHost = "127.0.0.1";
-            var vncPort = status.Port;
+            // Check if target host is localhost/127.0.0.1 - if so, this is the internal server
+            var isInternalServer = string.IsNullOrEmpty(targetHost) ||
+                                   targetHost == "localhost" ||
+                                   targetHost == "127.0.0.1" ||
+                                   targetHost == "::1";
 
-            if (!string.IsNullOrEmpty(targetPortStr) && int.TryParse(targetPortStr, out var requestedPort))
+            if (isInternalServer)
             {
-                if (requestedPort != vncPort)
+                // Connecting to internal Weasel VNC server
+                if (!status.IsRunning)
                 {
-                    logger.LogWarning("VNC WebSocket connection attempted with wrong port: {AttemptedPort}, expected {ExpectedPort}", requestedPort, vncPort);
-                    return Results.BadRequest("Invalid VNC port");
+                    logger.LogWarning("VNC WebSocket connection attempted but internal server is not running");
+                    return Results.BadRequest("VNC server is not running");
                 }
+
+                vncHost = "127.0.0.1";
+                vncPort = status.Port;
+
+                if (!string.IsNullOrEmpty(targetPortStr) && int.TryParse(targetPortStr, out var requestedPort))
+                {
+                    if (requestedPort != vncPort)
+                    {
+                        logger.LogWarning("VNC WebSocket connection attempted with wrong port: {AttemptedPort}, expected {ExpectedPort}", requestedPort, vncPort);
+                        return Results.BadRequest("Invalid VNC port");
+                    }
+                }
+            }
+            else
+            {
+                // Connecting to external VNC server - use the provided host and port
+                if (string.IsNullOrEmpty(targetHost))
+                {
+                    logger.LogWarning("VNC WebSocket connection attempted without host parameter");
+                    return Results.BadRequest("Host parameter is required for external VNC servers");
+                }
+
+                if (string.IsNullOrEmpty(targetPortStr) || !int.TryParse(targetPortStr, out vncPort))
+                {
+                    logger.LogWarning("VNC WebSocket connection attempted without valid port parameter");
+                    return Results.BadRequest("Valid port parameter is required for external VNC servers");
+                }
+
+                vncHost = targetHost;
+                logger.LogInformation("Connecting to external VNC server at {Host}:{Port}", vncHost, vncPort);
             }
 
             logger.LogInformation("Accepting VNC WebSocket connection, proxying to {Host}:{Port}", vncHost, vncPort);
             var webSocket = await context.WebSockets.AcceptWebSocketAsync();
             await ProxyWebSocketToVnc(webSocket, vncHost, vncPort, context.RequestAborted, logger);
             return Results.Empty;
+        });
+
+        // VNC Recording endpoints
+        group.MapGet("/recordings/config", (IOptionsMonitor<WeaselHostOptions> options) =>
+        {
+            var recording = options.CurrentValue.Vnc.Recording;
+            return Results.Ok(recording);
+        });
+
+        group.MapPut("/recordings/config", async (VncRecordingOptions request, ISettingsStore settingsStore, CancellationToken cancellationToken) =>
+        {
+            await settingsStore.SaveVncRecordingSettingsAsync(request, cancellationToken);
+            return Results.Ok(request);
+        });
+
+        group.MapGet("/recordings", async (string? profileId, IVncRecordingService recordingService, CancellationToken cancellationToken) =>
+        {
+            var recordings = await recordingService.GetRecordingsAsync(profileId, cancellationToken);
+            return Results.Ok(recordings);
+        });
+
+        group.MapGet("/recordings/sessions", async (IVncRecordingService recordingService, CancellationToken cancellationToken) =>
+        {
+            var sessions = await recordingService.GetActiveSessionsAsync(cancellationToken);
+            return Results.Ok(sessions);
+        });
+
+        group.MapGet("/recordings/sessions/{sessionId}", async (string sessionId, IVncRecordingService recordingService, CancellationToken cancellationToken) =>
+        {
+            var session = await recordingService.GetSessionAsync(sessionId, cancellationToken);
+            return session != null ? Results.Ok(session) : Results.NotFound();
+        });
+
+        group.MapPost("/recordings/start", async (StartRecordingRequest request, IVncRecordingService recordingService, CancellationToken cancellationToken) =>
+        {
+            var session = await recordingService.StartRecordingAsync(request.ProfileId, request.ProfileName, cancellationToken);
+            return Results.Ok(session);
+        });
+
+        group.MapPost("/recordings/stop/{sessionId}", async (string sessionId, IVncRecordingService recordingService, CancellationToken cancellationToken) =>
+        {
+            await recordingService.StopRecordingAsync(sessionId, cancellationToken);
+            return Results.Ok(new { message = "Recording stopped" });
+        });
+
+        group.MapPost("/recordings/chunk/{sessionId}", async (string sessionId, HttpContext context, IVncRecordingService recordingService, CancellationToken cancellationToken) =>
+        {
+            using var ms = new MemoryStream();
+            await context.Request.Body.CopyToAsync(ms, cancellationToken);
+            var chunkData = ms.ToArray();
+            await recordingService.ReceiveChunkAsync(sessionId, chunkData, cancellationToken);
+            return Results.Ok();
+        });
+
+        group.MapPost("/recordings/frame-stats/{sessionId}", async (string sessionId, FrameStatsRequest request, IVncRecordingService recordingService, CancellationToken cancellationToken) =>
+        {
+            await recordingService.UpdateFrameStatsAsync(sessionId, request.MotionDetected, cancellationToken);
+            return Results.Ok();
+        });
+
+        group.MapDelete("/recordings/{recordingId}", async (string recordingId, IVncRecordingService recordingService, CancellationToken cancellationToken) =>
+        {
+            await recordingService.DeleteRecordingAsync(recordingId, cancellationToken);
+            return Results.Ok(new { message = "Recording deleted" });
+        });
+
+        group.MapPost("/recordings/cleanup", async (IVncRecordingService recordingService, CancellationToken cancellationToken) =>
+        {
+            var deletedCount = await recordingService.CleanupOldRecordingsAsync(cancellationToken);
+            return Results.Ok(new { message = $"Deleted {deletedCount} old recordings" });
+        });
+
+        group.MapGet("/recordings/download/{recordingId}", async (string recordingId, IVncRecordingService recordingService, IOptionsMonitor<WeaselHostOptions> options, CancellationToken cancellationToken) =>
+        {
+            var recordings = await recordingService.GetRecordingsAsync(null, cancellationToken);
+            var recording = recordings.FirstOrDefault(r => r.RecordingId == recordingId);
+
+            if (recording == null || !File.Exists(recording.FilePath))
+            {
+                return Results.NotFound();
+            }
+
+            var fileName = Path.GetFileName(recording.FilePath);
+            return Results.File(recording.FilePath, "video/webm", fileName);
         });
     }
 
@@ -1375,6 +1506,10 @@ public static class Program
     private record SecurityUpdateRequest(bool RequireAuthentication, string? Password);
 
     private record VncConfigRequest(bool Enabled, int Port, bool AllowRemote, string? Password, bool? AutoStart);
+
+    private record StartRecordingRequest(string ProfileId, string ProfileName);
+
+    private record FrameStatsRequest(bool MotionDetected);
 
     private record TestEmailRequest(string Recipient);
 

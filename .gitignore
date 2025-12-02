@@ -11,9 +11,10 @@
 *.sln.docstates
 .vscode/
 .claude/
-build.cmd
-build.ps1
+build*.cmd
+build*.ps1
 CLAUDE*.md
+SESSION*.md
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -366,3 +367,17 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# Windows reserved device names
+nul
+CON
+PRN
+AUX
+NUL
+COM1
+COM2
+COM3
+COM4
+LPT1
+LPT2
+LPT3

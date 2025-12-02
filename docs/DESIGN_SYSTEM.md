@@ -161,12 +161,247 @@ const columns: TableColumn<DataType>[] = [
   { key: "status", label: "Status", sortable: false }
 ];
 
-<Table 
-  data={items} 
-  columns={columns} 
+<Table
+  data={items}
+  columns={columns}
   onSort={(key, direction) => {...}}
 />
 ```
+
+### ToggleBar
+
+Replacement for checkbox-based toggle controls with a modern sliding toggle design.
+
+**Location**: `webui/src/components/ToggleBar.tsx`
+
+**Usage**:
+```tsx
+import ToggleBar from "../components/ToggleBar";
+
+<ToggleBar
+  enabled={isEnabled}
+  onChange={setIsEnabled}
+  label="Enable Feature"
+  description="Optional description text"
+/>
+```
+
+**Props**:
+
+- `enabled`: Current toggle state (boolean)
+- `onChange`: Callback when toggle state changes
+- `label`: Optional label text
+- `description`: Optional description text
+- `disabled`: Optional disabled state
+
+**Best Practices**:
+
+- Use for binary on/off settings
+- Always provide a clear label
+- Use description for additional context when needed
+- Replace `<input type="checkbox">` with ToggleBar for better UX
+
+### VncViewer
+
+Web-based VNC client component using noVNC for remote desktop connections.
+
+**Location**: `webui/src/components/VncViewer.tsx`
+
+**Usage**:
+```tsx
+import VncViewer from "../components/VncViewer";
+
+<VncViewer
+  host="192.168.1.100"
+  port={5900}
+  password="secret"
+  viewOnly={false}
+  shared={true}
+  quality={6}
+  compression={2}
+  onDisconnect={() => {...}}
+  onScreenshot={(dataUrl) => {...}}
+  profileId="profile-123"
+  profileName="My VNC Server"
+  enableRecording={true}
+  recordingOptions={recordingConfig}
+/>
+```
+
+**Props**:
+
+- `host`: VNC server hostname or IP
+- `port`: VNC server port
+- `password`: Optional VNC password
+- `viewOnly`: Disable keyboard/mouse input (default: false)
+- `shared`: Allow multiple connections (default: false)
+- `quality`: Image quality 0-9 (0=best, default: 6)
+- `compression`: Compression level 0-9 (0=none, default: 2)
+- `onDisconnect`: Callback when connection closes
+- `onScreenshot`: Callback when screenshot captured
+- `profileId`: Optional profile identifier for recordings
+- `profileName`: Optional profile name for recordings
+- `enableRecording`: Enable session recording (default: false)
+- `recordingOptions`: Recording configuration object
+
+**Features**:
+
+- Full keyboard and mouse support
+- Screenshot capture
+- Session recording with motion detection
+- Ctrl+Alt+Delete support
+- Connection status display
+- Automatic reconnection handling
+
+### LogPanel
+
+Collapsible log panel component for displaying component-specific logs.
+
+**Location**: `webui/src/components/LogPanel.tsx`
+
+**Usage**:
+```tsx
+import LogPanel from "../components/LogPanel";
+
+<LogPanel
+  title="VNC Server Logs"
+  logs={logEntries}
+  isExpanded={isPanelExpanded}
+  onToggleExpanded={setIsPanelExpanded}
+  maxHeight="400px"
+/>
+```
+
+**Props**:
+
+- `title`: Panel title text
+- `logs`: Array of log entry strings
+- `isExpanded`: Current expansion state
+- `onToggleExpanded`: Callback to toggle expansion
+- `maxHeight`: Optional maximum height when expanded
+
+**Best Practices**:
+
+- Save expansion state to localStorage per panel
+- Use for component-specific operational logs
+- Limit log array to recent entries (e.g., last 100)
+- Provide clear, timestamped log messages
+
+### FolderPicker
+
+Dialog component for selecting folders from the file system.
+
+**Location**: `webui/src/components/FolderPicker.tsx`
+
+**Usage**:
+```tsx
+import FolderPicker from "../components/FolderPicker";
+
+<FolderPicker
+  isOpen={showPicker}
+  currentPath={selectedFolder}
+  onSelect={(path) => {...}}
+  onClose={() => setShowPicker(false)}
+  title="Select Folder"
+/>
+```
+
+**Props**:
+
+- `isOpen`: Whether dialog is visible
+- `currentPath`: Initially selected folder path
+- `onSelect`: Callback with selected folder path
+- `onClose`: Callback to close dialog
+- `title`: Optional dialog title
+
+### FilePicker
+
+Dialog component for selecting files from the file system.
+
+**Location**: `webui/src/components/FilePicker.tsx`
+
+**Usage**: Similar to FolderPicker but for file selection
+
+- Supports file filtering by extension
+- Shows file size and modification date
+- Includes file preview for supported types
+
+### Pagination
+
+The Pagination component provides consistent navigation controls for large datasets across the application.
+
+**Location**: `webui/src/components/Pagination.tsx`
+
+**Features**:
+
+- Page size selector (25/50/100/All options)
+- Current page indicator with total items count
+- Previous/Next navigation buttons
+- Automatic hiding when showing all items (pageSize === 0)
+- Automatic hiding when only one page exists
+- LocalStorage persistence for user preferences
+
+**Usage**:
+```tsx
+import Pagination from "../components/Pagination";
+
+// State
+const [currentPage, setCurrentPage] = useState(1);
+const [pageSize, setPageSize] = useState(() => {
+  const saved = localStorage.getItem('weasel.section.pageSize');
+  return saved ? parseInt(saved) : 50;
+});
+
+// Pagination logic
+const paginatedData = useMemo(() => {
+  if (pageSize === 0) return allData; // Show all
+  const start = (currentPage - 1) * pageSize;
+  const end = start + pageSize;
+  return allData.slice(start, end);
+}, [allData, pageSize, currentPage]);
+
+// Handler
+const handlePageSizeChange = (size: number) => {
+  setPageSize(size);
+  setCurrentPage(1); // Reset to page 1
+  localStorage.setItem('weasel.section.pageSize', size.toString());
+};
+
+// Component
+<Pagination
+  currentPage={currentPage}
+  totalItems={allData.length}
+  pageSize={pageSize}
+  onPageChange={setCurrentPage}
+  onPageSizeChange={handlePageSizeChange}
+/>
+```
+
+**Props**:
+
+- `currentPage`: Current page number (1-indexed)
+- `totalItems`: Total number of items in the dataset
+- `pageSize`: Number of items per page (0 = show all)
+- `onPageChange`: Callback when page changes
+- `onPageSizeChange`: Optional callback when page size changes
+
+**Best Practices**:
+
+- Always reset `currentPage` to 1 when changing `pageSize`
+- Persist page size preferences to localStorage with a unique key per section
+- Use pageSize === 0 to represent "Show All" mode
+- Hide pagination controls when `totalPages <= 1` or `pageSize === 0`
+- Use default page size of 50 for text data, 25 for images
+- Remove `maxHeight` constraints from tables/grids when using pagination
+
+**Common Sections Using Pagination**:
+
+- Package Manager (installed and search results)
+- File Explorer (folders and files panels)
+- Logs (folders and files panels)
+- Task Manager
+- Service Manager
+- Screenshots (captured and timed)
 
 ### Dialogs and Notifications
 

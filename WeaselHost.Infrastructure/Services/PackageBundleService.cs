@@ -22,13 +22,16 @@ public sealed class PackageBundleService : IPackageBundleService
     {
         if (!File.Exists(_bundlesPath))
         {
+            _logger?.LogDebug("Bundles file does not exist: {Path}", _bundlesPath);
             return Array.Empty<PackageBundle>();
         }
 
         try
         {
+            _logger?.LogInformation("Loading package bundles from: {Path}", _bundlesPath);
             await using var stream = File.OpenRead(_bundlesPath);
             var bundles = await JsonSerializer.DeserializeAsync<List<PackageBundle>>(stream, cancellationToken: cancellationToken);
+            _logger?.LogInformation("Loaded {Count} package bundles", bundles?.Count ?? 0);
             return (bundles ?? new List<PackageBundle>()).AsReadOnly();
         }
         catch (Exception ex)
@@ -46,6 +49,7 @@ public sealed class PackageBundleService : IPackageBundleService
 
     public async Task<PackageBundle> CreateBundleAsync(string name, string description, CancellationToken cancellationToken = default)
     {
+        _logger?.LogInformation("Creating new package bundle: {Name}", name);
         var bundles = (await GetAllBundlesAsync(cancellationToken)).ToList();
         var bundle = new PackageBundle(
             Id: Guid.NewGuid().ToString(),
@@ -57,16 +61,19 @@ public sealed class PackageBundleService : IPackageBundleService
 
         bundles.Add(bundle);
         await SaveBundlesAsync(bundles, cancellationToken);
+        _logger?.LogInformation("Package bundle created successfully: {BundleId} - {Name}", bundle.Id, name);
         return bundle;
     }
 
     public async Task<PackageBundle> UpdateBundleAsync(string bundleId, string? name = null, string? description = null, List<BundlePackage>? packages = null, CancellationToken cancellationToken = default)
     {
+        _logger?.LogInformation("Updating package bundle: {BundleId}", bundleId);
         var bundles = (await GetAllBundlesAsync(cancellationToken)).ToList();
         var index = bundles.FindIndex(b => b.Id == bundleId);
-        
+
         if (index < 0)
         {
+            _logger?.LogWarning("Bundle not found: {BundleId}", bundleId);
             throw new KeyNotFoundException($"Bundle with ID {bundleId} not found.");
         }
 
@@ -81,29 +88,36 @@ public sealed class PackageBundleService : IPackageBundleService
 
         bundles[index] = updated;
         await SaveBundlesAsync(bundles, cancellationToken);
+        _logger?.LogInformation("Package bundle updated successfully: {BundleId} - {Name}", bundleId, updated.Name);
         return updated;
     }
 
     public async Task DeleteBundleAsync(string bundleId, CancellationToken cancellationToken = default)
     {
+        _logger?.LogInformation("Deleting package bundle: {BundleId}", bundleId);
         var bundles = (await GetAllBundlesAsync(cancellationToken)).ToList();
-        bundles.RemoveAll(b => b.Id == bundleId);
+        var removed = bundles.RemoveAll(b => b.Id == bundleId);
         await SaveBundlesAsync(bundles, cancellationToken);
+        _logger?.LogInformation("Package bundle deleted successfully: {BundleId} ({Removed} removed)", bundleId, removed);
     }
 
     public async Task<IReadOnlyCollection<PackageOperationResult>> InstallBundleAsync(string bundleId, IPackageService packageService, CancellationToken cancellationToken = default)
     {
+        _logger?.LogInformation("Installing package bundle: {BundleId}", bundleId);
         var bundle = await GetBundleAsync(bundleId, cancellationToken);
         if (bundle == null)
         {
+            _logger?.LogWarning("Bundle not found for installation: {BundleId}", bundleId);
             throw new KeyNotFoundException($"Bundle with ID {bundleId} not found.");
         }
 
+        _logger?.LogInformation("Installing {Count} packages from bundle: {BundleName}", bundle.Packages.Count, bundle.Name);
         var results = new List<PackageOperationResult>();
         foreach (var package in bundle.Packages)
         {
             try
             {
+                _logger?.LogInformation("Installing package {PackageId} from bundle {BundleId}", package.Id, bundleId);
                 var result = await packageService.InstallAsync(package.Id, cancellationToken);
                 results.Add(result);
             }
@@ -114,15 +128,19 @@ public sealed class PackageBundleService : IPackageBundleService
             }
         }
 
+        var successCount = results.Count(r => r.Succeeded);
+        _logger?.LogInformation("Bundle installation completed: {SuccessCount}/{TotalCount} packages installed successfully", successCount, results.Count);
         return results.AsReadOnly();
     }
 
     private async Task SaveBundlesAsync(List<PackageBundle> bundles, CancellationToken cancellationToken)
     {
+        _logger?.LogDebug("Saving {Count} bundles to: {Path}", bundles.Count, _bundlesPath);
         var options = new JsonSerializerOptions { WriteIndented = true };
         var json = JsonSerializer.Serialize(bundles, options);
         Directory.CreateDirectory(Path.GetDirectoryName(_bundlesPath)!);
         await File.WriteAllTextAsync(_bundlesPath, json, cancellationToken);
+        _logger?.LogDebug("Bundles saved successfully");
     }
 }
 

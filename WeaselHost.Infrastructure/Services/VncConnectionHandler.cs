@@ -138,17 +138,25 @@ public class VncConnectionHandler : IDisposable
                 await _stream.FlushAsync(cancellationToken);
                 
                 // Read client's security type selection
-                bytesRead = await _stream.ReadAsync(buffer, 0, 1, cancellationToken);
+                // Try reading more bytes to see if client is sending extra data
+                var securityBuffer = new byte[4]; // Read up to 4 bytes to detect protocol issues
+                bytesRead = await _stream.ReadAsync(securityBuffer, 0, 4, cancellationToken);
                 if (bytesRead < 1)
                 {
                     _logger?.LogWarning("Client did not select security type");
                     return;
                 }
-                securityType = buffer[0];
+                
+                // Log all bytes received for debugging
+                var bytesHex = string.Join(" ", securityBuffer.Take(bytesRead).Select(b => $"0x{b:X2}"));
+                _logger?.LogInformation("Security type selection: received {Count} bytes: {Bytes}", bytesRead, bytesHex);
+                
+                securityType = securityBuffer[0];
                 
                 if (securityType != 0x02) // VNC Authentication
                 {
-                    _logger?.LogWarning("Client selected unsupported security type: {Type}", securityType);
+                    _logger?.LogWarning("Client selected unsupported security type: {Type} (0x{TypeHex:X2}). Full bytes: {Bytes}", 
+                        securityType, securityType, bytesHex);
                     return;
                 }
 
@@ -248,17 +256,25 @@ public class VncConnectionHandler : IDisposable
                 await _stream.FlushAsync(cancellationToken);
                 
                 // Read client's security type selection
-                bytesRead = await _stream.ReadAsync(buffer, 0, 1, cancellationToken);
+                // Try reading more bytes to see if client is sending extra data
+                var securityBufferNone = new byte[4]; // Read up to 4 bytes to detect protocol issues
+                bytesRead = await _stream.ReadAsync(securityBufferNone, 0, 4, cancellationToken);
                 if (bytesRead < 1)
                 {
                     _logger?.LogWarning("Client did not select security type");
                     return;
                 }
-                securityType = buffer[0];
+                
+                // Log all bytes received for debugging
+                var bytesHexNone = string.Join(" ", securityBufferNone.Take(bytesRead).Select(b => $"0x{b:X2}"));
+                _logger?.LogInformation("Security type selection (None): received {Count} bytes: {Bytes}", bytesRead, bytesHexNone);
+                
+                securityType = securityBufferNone[0];
                 
                 if (securityType != 0x01) // None
                 {
-                    _logger?.LogWarning("Client selected unsupported security type: {Type}", securityType);
+                    _logger?.LogWarning("Client selected unsupported security type: {Type} (0x{TypeHex:X2}). Full bytes: {Bytes}", 
+                        securityType, securityType, bytesHexNone);
                     return;
                 }
                 
@@ -661,7 +677,8 @@ public class VncConnectionHandler : IDisposable
 
         // VNC KeyEvent format: [padding:1][down-flag:1][padding:2][key:4]
         var downFlag = buffer[1];
-        var keysym = BitConverter.ToUInt32(new byte[] { buffer[7], buffer[6], buffer[5], buffer[4] }, 0);
+        // Key is 4 bytes at indices 3-6 (big-endian)
+        var keysym = BitConverter.ToUInt32(new byte[] { buffer[6], buffer[5], buffer[4], buffer[3] }, 0);
 
         // Convert VNC keysym to Windows virtual key code
         var vk = ConvertKeysymToVirtualKey(keysym);

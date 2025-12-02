@@ -17,6 +17,7 @@ public class WeaselHostOptions
     public SmtpOptions Smtp { get; set; } = new();
     public VncOptions Vnc { get; set; } = new();
     public UiPreferencesOptions UiPreferences { get; set; } = new();
+    public FileExplorerOptions FileExplorer { get; set; } = new();
     public string? CertificatePassword { get; set; }
 
     /// <summary>
@@ -64,6 +65,12 @@ public class CaptureOptions
     public string Folder { get; set; } =
         Path.Combine(AppContext.BaseDirectory, "Screenshots");
 
+    /// <summary>
+    /// Separate folder for interval/timed screenshots. Defaults to "Timed" subfolder within main Screenshots folder.
+    /// </summary>
+    public string TimedFolder { get; set; } =
+        Path.Combine(AppContext.BaseDirectory, "Screenshots", "Timed");
+
     public string FileNamePattern { get; set; } = "yyyyMMdd_HHmmss";
     public bool EnableIntervalCapture { get; set; }
     public int IntervalSeconds { get; set; } = 60;
@@ -73,7 +80,7 @@ public class LoggingOptions
 {
     public string Folder { get; set; } = Path.Combine(AppContext.BaseDirectory, "Logs");
 
-    public int RetentionDays { get; set; } = 14;
+    public int RetentionDays { get; set; } = 30;
 
     public LogLevel MinimumLevel { get; set; } = LogLevel.Information;
 
@@ -96,15 +103,17 @@ public class LoggingOptions
     public bool EnableSizeRotation { get; set; } = true;
 
     /// <summary>
-    /// Component-specific logging enable flags. Key is the component name (e.g., "VNC", "DiskMonitor", "ApplicationMonitor", "Screenshots", "General").
+    /// Component-specific logging enable flags. Key is the component name (e.g., "VNC", "VNCRecording", "DiskMonitor", "ApplicationMonitor", "Screenshots", "Files", "General").
     /// If a component is not in the dictionary, it defaults to enabled.
     /// </summary>
     public Dictionary<string, bool> ComponentEnabled { get; set; } = new()
     {
         { "VNC", true },
+        { "VNCRecording", true },
         { "DiskMonitor", true },
         { "ApplicationMonitor", true },
         { "Screenshots", true },
+        { "Files", true },
         { "General", true }
     };
 

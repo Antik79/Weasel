@@ -28,7 +28,14 @@ public sealed class ScreenshotService : IScreenshotService
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Weasel", "Screenshots")
             : captureOptions.Folder;
 
-        Directory.CreateDirectory(folder);
+        return CaptureAsync(folder, cancellationToken);
+    }
+
+    public Task<string> CaptureAsync(string destinationFolder, CancellationToken cancellationToken = default)
+    {
+        var captureOptions = _options.CurrentValue.Capture;
+
+        Directory.CreateDirectory(destinationFolder);
 
         var pattern = string.IsNullOrWhiteSpace(captureOptions.FileNamePattern)
             ? "yyyyMMdd_HHmmss"
@@ -40,7 +47,7 @@ public sealed class ScreenshotService : IScreenshotService
             ? sanitized
             : $"{sanitized}.png";
 
-        var path = Path.Combine(folder, fileName);
+        var path = Path.Combine(destinationFolder, fileName);
         var bounds = SystemInformation.VirtualScreen;
 
         using var bitmap = new Bitmap(bounds.Width, bounds.Height);
@@ -48,9 +55,7 @@ public sealed class ScreenshotService : IScreenshotService
         graphics.CopyFromScreen(bounds.Left, bounds.Top, 0, 0, bounds.Size);
         bitmap.Save(path, ImageFormat.Png);
 
-        bitmap.Save(path, ImageFormat.Png);
-
-        _logger.LogInformation("Screenshot captured manually: {Path}", path);
+        _logger.LogInformation("Screenshot captured to: {Path}", path);
 
         return Task.FromResult(path);
     }

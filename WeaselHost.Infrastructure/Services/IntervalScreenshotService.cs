@@ -36,7 +36,12 @@ public class IntervalScreenshotService : BackgroundService
 
             try
             {
-                var path = await _screenshotService.CaptureAsync(stoppingToken);
+                // Use TimedFolder for interval screenshots, fallback to regular Folder if not configured
+                var timedFolder = string.IsNullOrWhiteSpace(options.TimedFolder)
+                    ? options.Folder
+                    : options.TimedFolder;
+
+                var path = await _screenshotService.CaptureAsync(timedFolder, stoppingToken);
                 _logger.LogInformation("Interval screenshot saved to {Path}", path);
             }
             catch (Exception ex)
