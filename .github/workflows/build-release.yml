@@ -219,15 +219,41 @@ jobs:
       shell: pwsh
       run: |
         $changelog = Get-Content CHANGELOG.md -Raw
-        if ($changelog -match '## \[([^\]]+)\]([^\#]+)') {
-          $version = $matches[1]
-          $notes = $matches[2].Trim()
-          Write-Host "RELEASE_NOTES<<EOF" >> $env:GITHUB_OUTPUT
-          Write-Host $notes >> $env:GITHUB_OUTPUT
-          Write-Host "EOF" >> $env:GITHUB_OUTPUT
-        } else {
-          Write-Host "RELEASE_NOTES=Release $env:VERSION" >> $env:GITHUB_OUTPUT
+        $version = $env:VERSION
+
+        Write-Host "Extracting release notes for version: $version"
+
+        # Try to find exact version match first (e.g., [1.0.0-beta])
+        $pattern = "(?s)## \[$version\][^\n]*\n(.*?)(?=\n## \[|\z)"
+        if ($changelog -match $pattern) {
+          $notes = $matches[1].Trim()
+          Write-Host "Found exact version match for [$version]"
         }
+        # Try to find Unreleased section as fallback
+        elseif ($changelog -match "(?s)## \[Unreleased\][^\n]*\n(.*?)(?=\n## \[|\z)") {
+          $notes = $matches[1].Trim()
+          Write-Host "Using [Unreleased] section as version not found"
+        }
+        # Fallback to first version section
+        elseif ($changelog -match "(?s)## \[([^\]]+)\][^\n]*\n(.*?)(?=\n## \[|\z)") {
+          $notes = $matches[2].Trim()
+          Write-Host "Using first changelog section"
+        }
+        # Last resort fallback
+        else {
+          $notes = "Release $version"
+          Write-Host "WARNING: Could not extract changelog, using default message"
+        }
+
+        # Write to GitHub output using heredoc syntax
+        "RELEASE_NOTES<<EOF" >> $env:GITHUB_OUTPUT
+        $notes >> $env:GITHUB_OUTPUT
+        "EOF" >> $env:GITHUB_OUTPUT
+
+        Write-Host ""
+        Write-Host "=== Release Notes Preview ==="
+        Write-Host $notes
+        Write-Host "==========================="
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
