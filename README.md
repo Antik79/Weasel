@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/weasel-logo.png" alt="Weasel Logo" width="200" />
+  <img src="assets/weasel-logo.png" alt="Weasel Logo" width="250" />
 </div>
 
 # Weasel
