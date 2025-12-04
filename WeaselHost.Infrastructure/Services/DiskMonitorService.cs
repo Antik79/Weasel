@@ -33,15 +33,9 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
-        var options = _optionsMonitor.CurrentValue.DiskMonitoring;
-        if (!options.Enabled)
-        {
-            return Task.CompletedTask;
-        }
-
         _cancellationTokenSource = new CancellationTokenSource();
         _monitoringTask = Task.Run(() => MonitorLoopAsync(_cancellationTokenSource.Token), cancellationToken);
-        _logger.LogInformation("Disk monitoring started");
+        _logger.LogInformation("Disk monitoring service started");
         return Task.CompletedTask;
     }
 
@@ -123,19 +117,11 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             driveStatuses));
     }
 
-    public async Task UpdateConfigurationAsync(DiskMonitoringOptions options, CancellationToken cancellationToken = default)
+    public Task UpdateConfigurationAsync(DiskMonitoringOptions options, CancellationToken cancellationToken = default)
     {
-        // Configuration is updated via IOptionsMonitor, so we just need to restart if needed
-        var wasRunning = _monitoringTask?.IsCompleted == false;
-        if (wasRunning)
-        {
-            await StopAsync(cancellationToken);
-        }
-
-        if (options.Enabled)
-        {
-            await StartAsync(cancellationToken);
-        }
+        // Configuration is updated via IOptionsMonitor, so the monitoring loop will pick up changes automatically
+        _logger.LogInformation("Disk monitoring configuration updated");
+        return Task.CompletedTask;
     }
 
     private async Task MonitorLoopAsync(CancellationToken cancellationToken)

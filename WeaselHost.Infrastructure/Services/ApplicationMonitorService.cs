@@ -34,15 +34,9 @@ public sealed class ApplicationMonitorService : IHostedService
 
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
-        var options = _optionsMonitor.CurrentValue.ApplicationMonitor;
-        if (!options.Enabled)
-        {
-            return Task.CompletedTask;
-        }
-
         _cancellationTokenSource = new CancellationTokenSource();
         _monitoringTask = Task.Run(() => MonitorLoopAsync(_cancellationTokenSource.Token), cancellationToken);
-        _logger.LogInformation("Application monitoring started");
+        _logger.LogInformation("Application monitoring service started");
         return Task.CompletedTask;
     }
 

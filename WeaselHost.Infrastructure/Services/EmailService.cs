@@ -58,13 +58,20 @@ public sealed class EmailService : IEmailService
 
         try
         {
-            using var client = new SmtpClient(smtp.Host, smtp.Port)
+            using var client = new SmtpClient
             {
+                Host = smtp.Host,
+                Port = smtp.Port,
                 EnableSsl = smtp.EnableSsl,
-                Credentials = string.IsNullOrWhiteSpace(smtp.Username) || string.IsNullOrWhiteSpace(smtp.Password)
-                    ? null
-                    : new NetworkCredential(smtp.Username, smtp.Password)
+                DeliveryMethod = SmtpDeliveryMethod.Network,
+                UseDefaultCredentials = false,
+                Timeout = 30000
             };
+
+            if (!string.IsNullOrWhiteSpace(smtp.Username) && !string.IsNullOrWhiteSpace(smtp.Password))
+            {
+                client.Credentials = new NetworkCredential(smtp.Username, smtp.Password);
+            }
 
             using var message = new MailMessage
             {
