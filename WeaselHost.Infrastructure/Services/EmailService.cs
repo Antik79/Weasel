@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Mail;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using WeaselHost.Core;
 using WeaselHost.Core.Abstractions;
 using WeaselHost.Core.Configuration;
 
@@ -65,7 +66,7 @@ public sealed class EmailService : IEmailService
                 EnableSsl = smtp.EnableSsl,
                 DeliveryMethod = SmtpDeliveryMethod.Network,
                 UseDefaultCredentials = false,
-                Timeout = 30000
+                Timeout = WeaselConstants.Timeouts.SmtpTimeoutMilliseconds
             };
 
             if (!string.IsNullOrWhiteSpace(smtp.Username) && !string.IsNullOrWhiteSpace(smtp.Password))

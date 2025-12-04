@@ -1,10 +1,9 @@
 using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Mail;
 using System.Text;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using WeaselHost.Core;
 using WeaselHost.Core.Abstractions;
 using WeaselHost.Core.Configuration;
 
@@ -47,8 +46,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
         {
             try
             {
-                // Wait for the monitoring task with a 3-second timeout
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                using var timeoutCts = new CancellationTokenSource(WeaselConstants.Timeouts.ServiceStopGracePeriod);
                 await _monitoringTask.WaitAsync(timeoutCts.Token);
             }
             catch (OperationCanceledException)
@@ -132,8 +130,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             {
                 await CheckDisksAsync(cancellationToken);
                 await CheckFoldersAsync(cancellationToken);
-                // Use a short base interval and check each drive/folder based on its own interval
-                await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken);
+                await Task.Delay(WeaselConstants.Intervals.DiskMonitorLoop, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -142,7 +139,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in disk monitoring loop");
-                await Task.Delay(TimeSpan.FromMinutes(5), cancellationToken);
+                await Task.Delay(WeaselConstants.Intervals.ErrorRetryDelay, cancellationToken);
             }
         }
     }
@@ -200,7 +197,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             {
                 // Check if we should send an alert (avoid spam - send max once per hour per drive)
                 var lastAlert = _lastAlertSent.GetValueOrDefault(driveName);
-                if (DateTimeOffset.UtcNow - lastAlert > TimeSpan.FromHours(1))
+                if (DateTimeOffset.UtcNow - lastAlert > WeaselConstants.Alerts.ThrottleInterval)
                 {
                     alerts.Add((driveName, freeBytes, freePercent));
                     _lastAlertSent[driveName] = DateTimeOffset.UtcNow;
@@ -266,7 +263,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
                     // Check if we should send an alert (avoid spam - send max once per hour per folder)
                     var alertKey = $"folder:{folderMonitor.Path}";
                     var lastAlert = _lastAlertSent.GetValueOrDefault(alertKey);
-                    if (DateTimeOffset.UtcNow - lastAlert > TimeSpan.FromHours(1))
+                    if (DateTimeOffset.UtcNow - lastAlert > WeaselConstants.Alerts.ThrottleInterval)
                     {
                         alerts.Add((folderMonitor.Path, folderSize, thresholdDirection));
                         _lastAlertSent[alertKey] = DateTimeOffset.UtcNow;
@@ -301,15 +298,23 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
                 {
                     size += file.Length;
                 }
-                catch
+                catch (UnauthorizedAccessException)
                 {
-                    // Skip files we can't access
+                    // Skip files we can't access due to permissions
+                }
+                catch (IOException)
+                {
+                    // Skip files that are locked or inaccessible
                 }
             }
         }
-        catch
+        catch (UnauthorizedAccessException)
         {
-            // Return 0 if we can't calculate
+            // Cannot access directory - return 0
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // Directory was deleted - return 0
         }
         return size;
     }

@@ -1,11 +1,10 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Net;
-using System.Net.Mail;
 using System.Text;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using WeaselHost.Core;
 using WeaselHost.Core.Abstractions;
 using WeaselHost.Core.Configuration;
 
@@ -48,7 +47,7 @@ public sealed class ApplicationMonitorService : IHostedService
         {
             try
             {
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                using var timeoutCts = new CancellationTokenSource(WeaselConstants.Timeouts.ServiceStopGracePeriod);
                 await _monitoringTask.WaitAsync(timeoutCts.Token);
             }
             catch (OperationCanceledException)
@@ -70,8 +69,7 @@ public sealed class ApplicationMonitorService : IHostedService
             {
                 await CheckApplicationsAsync(cancellationToken);
                 await CheckEventLogAsync(cancellationToken);
-                // Check every 10 seconds
-                await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+                await Task.Delay(WeaselConstants.Intervals.AppMonitorLoop, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -80,7 +78,7 @@ public sealed class ApplicationMonitorService : IHostedService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in application monitoring loop");
-                await Task.Delay(TimeSpan.FromMinutes(1), cancellationToken);
+                await Task.Delay(WeaselConstants.Intervals.ErrorRetryDelay, cancellationToken);
             }
         }
     }
@@ -146,11 +144,10 @@ public sealed class ApplicationMonitorService : IHostedService
                         catch (System.ComponentModel.Win32Exception)
                         {
                             // Access denied - can't check MainModule, skip this process
-                            // We'll rely on process name matching which is less accurate but works
                         }
-                        catch
+                        catch (InvalidOperationException)
                         {
-                            // Ignore and continue to next process
+                            // Process exited between enumeration and access
                         }
                         finally
                         {
@@ -189,9 +186,13 @@ public sealed class ApplicationMonitorService : IHostedService
                                 }
                             }
                         }
-                        catch
+                        catch (System.ComponentModel.Win32Exception)
                         {
-                            // Ignore and continue
+                            // Access denied - can't check MainModule
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // Process exited between enumeration and access
                         }
                         finally
                         {
@@ -284,7 +285,7 @@ public sealed class ApplicationMonitorService : IHostedService
                     var lastAlert = _lastAlertSent.GetValueOrDefault(alertKey);
                     
                     // Send alert max once per hour per app
-                    if (DateTimeOffset.UtcNow - lastAlert > TimeSpan.FromHours(1))
+                    if (DateTimeOffset.UtcNow - lastAlert > WeaselConstants.Alerts.ThrottleInterval)
                     {
                         await SendCrashAlertAsync(app, crashEntries, recipients, cancellationToken);
                         _lastAlertSent[alertKey] = DateTimeOffset.UtcNow;

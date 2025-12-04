@@ -9,10 +9,10 @@ public class ScreenFramebufferSource : IDisposable
 {
     private readonly object _lock = new();
     private Rectangle _bounds;
-    private readonly ILogger<ScreenFramebufferSource>? _logger;
+    private readonly ILogger<ScreenFramebufferSource> _logger;
     private VncFramebuffer? _lastSuccessfulCapture;
 
-    public ScreenFramebufferSource(ILogger<ScreenFramebufferSource>? logger = null)
+    public ScreenFramebufferSource(ILogger<ScreenFramebufferSource> logger)
     {
         _logger = logger;
         UpdateBounds();
@@ -49,7 +49,7 @@ public class ScreenFramebufferSource : IDisposable
                 }
                 catch (Win32Exception ex) when (ex.NativeErrorCode == 6) // ERROR_INVALID_HANDLE
                 {
-                    _logger?.LogWarning("Screen capture temporarily unavailable (handle invalid), returning fallback. This is normal during desktop lock/unlock or session transitions.");
+                    _logger.LogWarning("Screen capture temporarily unavailable (handle invalid), returning fallback. This is normal during desktop lock/unlock or session transitions.");
 
                     // Return last successful capture if available, otherwise black screen
                     if (_lastSuccessfulCapture != null &&
@@ -95,7 +95,7 @@ public class ScreenFramebufferSource : IDisposable
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Unexpected error during screen capture");
+                _logger.LogError(ex, "Unexpected error during screen capture");
 
                 // Return last successful capture if available, otherwise black screen
                 if (_lastSuccessfulCapture != null &&

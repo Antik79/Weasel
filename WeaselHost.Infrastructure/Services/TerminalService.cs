@@ -8,12 +8,12 @@ namespace WeaselHost.Infrastructure.Services;
 
 public sealed class TerminalService : ITerminalService, IDisposable
 {
-    private readonly ILogger<TerminalService>? _logger;
+    private readonly ILogger<TerminalService> _logger;
     private readonly ConcurrentDictionary<string, TerminalSessionInfo> _sessions = new();
     private readonly object _lock = new();
     private bool _disposed;
 
-    public TerminalService(ILogger<TerminalService>? logger = null)
+    public TerminalService(ILogger<TerminalService> logger)
     {
         _logger = logger;
     }
@@ -52,14 +52,14 @@ public sealed class TerminalService : ITerminalService, IDisposable
             // Monitor process exit
             process.Exited += (sender, e) =>
             {
-                _logger?.LogInformation("Terminal process {ProcessId} exited for session {SessionId}", process.Id, sessionId);
+                _logger.LogInformation("Terminal process {ProcessId} exited for session {SessionId}", process.Id, sessionId);
                 _sessions.TryRemove(sessionId, out _);
                 process.Dispose();
             };
 
             process.EnableRaisingEvents = true;
 
-            _logger?.LogInformation("Created terminal session {SessionId} with process {ProcessId} (shell: {ShellType})", 
+            _logger.LogInformation("Created terminal session {SessionId} with process {ProcessId} (shell: {ShellType})", 
                 sessionId, process.Id, shellType);
 
             return Task.FromResult(session);
@@ -75,7 +75,7 @@ public sealed class TerminalService : ITerminalService, IDisposable
 
         // Windows doesn't support dynamic terminal resizing for cmd.exe or PowerShell
         // This is a placeholder for future implementation if needed
-        _logger?.LogDebug("Resize requested for terminal {SessionId} to {Rows}x{Cols} (not implemented on Windows)", 
+        _logger.LogDebug("Resize requested for terminal {SessionId} to {Rows}x{Cols} (not implemented on Windows)", 
             sessionId, rows, cols);
 
         return Task.CompletedTask;
@@ -97,13 +97,13 @@ public sealed class TerminalService : ITerminalService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error closing terminal session {SessionId}", sessionId);
+            _logger.LogError(ex, "Error closing terminal session {SessionId}", sessionId);
         }
         finally
         {
             _sessions.TryRemove(sessionId, out _);
             sessionInfo.Process.Dispose();
-            _logger?.LogInformation("Closed terminal session {SessionId}", sessionId);
+            _logger.LogInformation("Closed terminal session {SessionId}", sessionId);
         }
 
         return Task.CompletedTask;
@@ -214,7 +214,7 @@ public sealed class TerminalService : ITerminalService, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "Error disposing terminal session {SessionId}", sessionId);
+                    _logger.LogError(ex, "Error disposing terminal session {SessionId}", sessionId);
                 }
             }
 

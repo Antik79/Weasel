@@ -20,9 +20,17 @@ public sealed class ProcessService : IProcessService
                     null,
                     executablePath));
             }
-            catch
+            catch (System.ComponentModel.Win32Exception)
             {
-                // Ignore processes we can't inspect
+                // Access denied - skip this process
+            }
+            catch (InvalidOperationException)
+            {
+                // Process exited - skip
+            }
+            finally
+            {
+                process.Dispose();
             }
         }
 
@@ -42,7 +50,11 @@ public sealed class ProcessService : IProcessService
         {
             return process.StartTime.ToUniversalTime();
         }
-        catch
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
         {
             return null;
         }
@@ -54,7 +66,11 @@ public sealed class ProcessService : IProcessService
         {
             return process.MainModule?.FileName;
         }
-        catch
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return null;
+        }
+        catch (InvalidOperationException)
         {
             return null;
         }

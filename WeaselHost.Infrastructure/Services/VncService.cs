@@ -9,8 +9,8 @@ namespace WeaselHost.Infrastructure.Services;
 
 public sealed class VncService : IVncService, IDisposable
 {
-    private readonly ILogger<VncService>? _logger;
-    private readonly ILoggerFactory? _loggerFactory;
+    private readonly ILogger<VncService> _logger;
+    private readonly ILoggerFactory _loggerFactory;
     private readonly IOptionsMonitor<WeaselHostOptions> _optionsMonitor;
     private readonly object _lock = new();
     private bool _isRunning;
@@ -25,8 +25,8 @@ public sealed class VncService : IVncService, IDisposable
 
     public VncService(
         IOptionsMonitor<WeaselHostOptions> optionsMonitor,
-        ILoggerFactory? loggerFactory = null,
-        ILogger<VncService>? logger = null)
+        ILoggerFactory loggerFactory,
+        ILogger<VncService> logger)
     {
         _optionsMonitor = optionsMonitor;
         _loggerFactory = loggerFactory;
@@ -39,7 +39,7 @@ public sealed class VncService : IVncService, IDisposable
         {
             if (_isRunning)
             {
-                _logger?.LogWarning("VNC server is already running on port {Port}", _port);
+                _logger.LogWarning("VNC server is already running on port {Port}", _port);
                 return Task.CompletedTask;
             }
 
@@ -50,7 +50,7 @@ public sealed class VncService : IVncService, IDisposable
             _cancellationTokenSource = new CancellationTokenSource();
             _isRunning = true;
 
-            _logger?.LogInformation("Starting VNC server on port {Port} (Remote: {AllowRemote})", port, allowRemote);
+            _logger.LogInformation("Starting VNC server on port {Port} (Remote: {AllowRemote})", port, allowRemote);
 
             _serverTask = Task.Run(async () => await RunServerAsync(_cancellationTokenSource.Token), _cancellationTokenSource.Token);
 
@@ -66,7 +66,7 @@ public sealed class VncService : IVncService, IDisposable
             _listener = new TcpListener(ipAddress, _port);
             _listener.Start();
 
-            _logger?.LogInformation("VNC server listening on {Address}:{Port}", ipAddress, _port);
+            _logger.LogInformation("VNC server listening on {Address}:{Port}", ipAddress, _port);
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -83,7 +83,7 @@ public sealed class VncService : IVncService, IDisposable
                 {
                     if (!cancellationToken.IsCancellationRequested)
                     {
-                        _logger?.LogError(ex, "Error accepting VNC client connection");
+                        _logger.LogError(ex, "Error accepting VNC client connection");
                     }
                 }
             }
@@ -100,7 +100,7 @@ public sealed class VncService : IVncService, IDisposable
             var errorMsg = ex.SocketErrorCode == SocketError.AddressAlreadyInUse
                 ? $"Port {_port} is already in use. Please choose a different port."
                 : $"Access denied binding to port {_port}. Please check permissions or choose a different port.";
-            _logger?.LogError(ex, "VNC server error: {Error}", errorMsg);
+            _logger.LogError(ex, "VNC server error: {Error}", errorMsg);
             throw new InvalidOperationException(errorMsg, ex);
         }
         catch (Exception ex)
@@ -112,7 +112,7 @@ public sealed class VncService : IVncService, IDisposable
                 _listener?.Stop();
                 _listener = null;
             }
-            _logger?.LogError(ex, "VNC server error");
+            _logger.LogError(ex, "VNC server error");
             throw;
         }
         finally
@@ -127,7 +127,7 @@ public sealed class VncService : IVncService, IDisposable
                     _listener = null;
                 }
             }
-            _logger?.LogInformation("VNC server stopped");
+            _logger.LogInformation("VNC server stopped");
         }
     }
 
@@ -141,7 +141,7 @@ public sealed class VncService : IVncService, IDisposable
                 _connectionCount++;
             }
 
-            _logger?.LogInformation("VNC client connected from {EndPoint}. Total connections: {Count}",
+            _logger.LogInformation("VNC client connected from {EndPoint}. Total connections: {Count}",
                 client.Client.RemoteEndPoint, _connectionCount);
 
             handler = new VncConnectionHandler(client, _password, _loggerFactory, _logger);
@@ -154,7 +154,7 @@ public sealed class VncService : IVncService, IDisposable
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error handling VNC client");
+            _logger.LogError(ex, "Error handling VNC client");
         }
         finally
         {
@@ -164,7 +164,7 @@ public sealed class VncService : IVncService, IDisposable
                 _connections.Remove(handler!);
                 _connectionCount = Math.Max(0, _connectionCount - 1);
             }
-            _logger?.LogInformation("VNC client disconnected. Total connections: {Count}", _connectionCount);
+            _logger.LogInformation("VNC client disconnected. Total connections: {Count}", _connectionCount);
         }
     }
 
@@ -177,7 +177,7 @@ public sealed class VncService : IVncService, IDisposable
                 return Task.CompletedTask;
             }
 
-            _logger?.LogInformation("Stopping VNC server");
+            _logger.LogInformation("Stopping VNC server");
 
             _cancellationTokenSource?.Cancel();
             _listener?.Stop();

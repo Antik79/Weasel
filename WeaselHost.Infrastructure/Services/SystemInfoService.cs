@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
+using System.Security;
 using System.Security.Principal;
 using Microsoft.Win32;
 
@@ -151,7 +152,11 @@ public sealed class SystemInfoService : ISystemInfoService, IDisposable
             var principal = new WindowsPrincipal(identity);
             return principal.IsInRole(WindowsBuiltInRole.Administrator);
         }
-        catch
+        catch (SecurityException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
         {
             return false;
         }

@@ -76,7 +76,7 @@ public class VncConnectionHandler : IDisposable
     private readonly TcpClient _client;
     private readonly NetworkStream _stream;
     private readonly string? _password;
-    private readonly ILogger<VncService>? _logger;
+    private readonly ILogger<VncService> _logger;
     private readonly ScreenFramebufferSource _framebufferSource;
     private bool _disposed;
     private byte _lastButtonMask = 0;
@@ -94,13 +94,13 @@ public class VncConnectionHandler : IDisposable
         BlueShift = 0
     };
 
-    public VncConnectionHandler(TcpClient client, string? password, ILoggerFactory? loggerFactory, ILogger<VncService>? logger)
+    public VncConnectionHandler(TcpClient client, string? password, ILoggerFactory loggerFactory, ILogger<VncService> logger)
     {
         _client = client;
         _stream = client.GetStream();
         _password = password;
         _logger = logger;
-        _framebufferSource = new ScreenFramebufferSource(loggerFactory?.CreateLogger<ScreenFramebufferSource>());
+        _framebufferSource = new ScreenFramebufferSource(loggerFactory.CreateLogger<ScreenFramebufferSource>());
     }
 
     public async Task HandleAsync(CancellationToken cancellationToken)
@@ -118,12 +118,12 @@ public class VncConnectionHandler : IDisposable
             var bytesRead = await _stream.ReadAsync(buffer, 0, 12, cancellationToken);
             if (bytesRead < 12)
             {
-                _logger?.LogWarning("Invalid RFB version handshake from client");
+                _logger.LogWarning("Invalid RFB version handshake from client");
                 return;
             }
 
             var clientVersion = Encoding.ASCII.GetString(buffer, 0, 12);
-            _logger?.LogDebug("Client RFB version: {Version}", clientVersion.Trim());
+            _logger.LogDebug("Client RFB version: {Version}", clientVersion.Trim());
 
             // Security Handshake - RFB Protocol requires:
             // 1. Server sends number of security types (1 byte), followed by security types (1 byte each)
@@ -143,19 +143,19 @@ public class VncConnectionHandler : IDisposable
                 bytesRead = await _stream.ReadAsync(securityBuffer, 0, 4, cancellationToken);
                 if (bytesRead < 1)
                 {
-                    _logger?.LogWarning("Client did not select security type");
+                    _logger.LogWarning("Client did not select security type");
                     return;
                 }
                 
                 // Log all bytes received for debugging
                 var bytesHex = string.Join(" ", securityBuffer.Take(bytesRead).Select(b => $"0x{b:X2}"));
-                _logger?.LogInformation("Security type selection: received {Count} bytes: {Bytes}", bytesRead, bytesHex);
+                _logger.LogInformation("Security type selection: received {Count} bytes: {Bytes}", bytesRead, bytesHex);
                 
                 securityType = securityBuffer[0];
                 
                 if (securityType != 0x02) // VNC Authentication
                 {
-                    _logger?.LogWarning("Client selected unsupported security type: {Type} (0x{TypeHex:X2}). Full bytes: {Bytes}", 
+                    _logger.LogWarning("Client selected unsupported security type: {Type} (0x{TypeHex:X2}). Full bytes: {Bytes}", 
                         securityType, securityType, bytesHex);
                     return;
                 }
@@ -172,7 +172,7 @@ public class VncConnectionHandler : IDisposable
                 bytesRead = await _stream.ReadAsync(response, 0, 16, cancellationToken);
                 if (bytesRead < 16)
                 {
-                    _logger?.LogWarning("Invalid authentication response from client (expected 16 bytes, got {Bytes})", bytesRead);
+                    _logger.LogWarning("Invalid authentication response from client (expected 16 bytes, got {Bytes})", bytesRead);
                     // Send authentication failure
                     await _stream.WriteAsync(new byte[] { 0x00, 0x00, 0x00, 0x01 }, cancellationToken);
                     await _stream.FlushAsync(cancellationToken);
@@ -216,7 +216,7 @@ public class VncConnectionHandler : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "Error during VNC DES encryption");
+                    _logger.LogError(ex, "Error during VNC DES encryption");
                     // Send authentication failure
                     await _stream.WriteAsync(new byte[] { 0x00, 0x00, 0x00, 0x01 }, cancellationToken);
                     await _stream.FlushAsync(cancellationToken);
@@ -236,14 +236,14 @@ public class VncConnectionHandler : IDisposable
 
                 if (!authenticated)
                 {
-                    _logger?.LogWarning("VNC authentication failed - password mismatch");
+                    _logger.LogWarning("VNC authentication failed - password mismatch");
                     // Send authentication failure: 0x00000001
                     await _stream.WriteAsync(new byte[] { 0x00, 0x00, 0x00, 0x01 }, cancellationToken);
                     await _stream.FlushAsync(cancellationToken);
                     return;
                 }
 
-                _logger?.LogDebug("VNC authentication successful");
+                _logger.LogDebug("VNC authentication successful");
                 
                 // Send security result: 0x00000000 = success
                 await _stream.WriteAsync(new byte[] { 0x00, 0x00, 0x00, 0x00 }, cancellationToken);
@@ -261,19 +261,19 @@ public class VncConnectionHandler : IDisposable
                 bytesRead = await _stream.ReadAsync(securityBufferNone, 0, 4, cancellationToken);
                 if (bytesRead < 1)
                 {
-                    _logger?.LogWarning("Client did not select security type");
+                    _logger.LogWarning("Client did not select security type");
                     return;
                 }
                 
                 // Log all bytes received for debugging
                 var bytesHexNone = string.Join(" ", securityBufferNone.Take(bytesRead).Select(b => $"0x{b:X2}"));
-                _logger?.LogInformation("Security type selection (None): received {Count} bytes: {Bytes}", bytesRead, bytesHexNone);
+                _logger.LogInformation("Security type selection (None): received {Count} bytes: {Bytes}", bytesRead, bytesHexNone);
                 
                 securityType = securityBufferNone[0];
                 
                 if (securityType != 0x01) // None
                 {
-                    _logger?.LogWarning("Client selected unsupported security type: {Type} (0x{TypeHex:X2}). Full bytes: {Bytes}", 
+                    _logger.LogWarning("Client selected unsupported security type: {Type} (0x{TypeHex:X2}). Full bytes: {Bytes}", 
                         securityType, securityType, bytesHexNone);
                     return;
                 }
@@ -294,7 +294,7 @@ public class VncConnectionHandler : IDisposable
             var primaryScreen = System.Windows.Forms.Screen.PrimaryScreen;
             if (primaryScreen == null)
             {
-                _logger?.LogError("Primary screen is not available");
+                _logger.LogError("Primary screen is not available");
                 return;
             }
             var screen = primaryScreen.Bounds;
@@ -333,24 +333,24 @@ public class VncConnectionHandler : IDisposable
             await _stream.WriteAsync(initBytes, cancellationToken);
             await _stream.FlushAsync(cancellationToken);
 
-            _logger?.LogInformation("VNC client authenticated and initialized, entering message loop");
+            _logger.LogInformation("VNC client authenticated and initialized, entering message loop");
 
             // Main message loop - handle SetPixelFormat, SetEncodings, and FramebufferUpdateRequest
             // The client will send these messages, and we'll handle them in the message loop
             await HandleMessagesAsync(cancellationToken);
             
-            _logger?.LogInformation("VNC message loop exited");
+            _logger.LogInformation("VNC message loop exited");
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error in VNC connection handler");
+            _logger.LogError(ex, "Error in VNC connection handler");
         }
     }
 
     private async Task HandleMessagesAsync(CancellationToken cancellationToken)
     {
         var buffer = new byte[1];
-        _logger?.LogInformation("Starting VNC message loop, waiting for client messages...");
+        _logger.LogInformation("Starting VNC message loop, waiting for client messages...");
         
         while (!cancellationToken.IsCancellationRequested && _client.Connected)
         {
@@ -362,7 +362,7 @@ public class VncConnectionHandler : IDisposable
                 var bytesRead = await _stream.ReadAsync(buffer, 0, 1, cancellationToken);
                 if (bytesRead == 0)
                 {
-                    _logger?.LogInformation("VNC client closed connection (0 bytes read)");
+                    _logger.LogInformation("VNC client closed connection (0 bytes read)");
                     break;
                 }
 
@@ -389,29 +389,29 @@ public class VncConnectionHandler : IDisposable
                         await ReadClientCutText(cancellationToken);
                         break;
                     default:
-                        _logger?.LogWarning("Unknown VNC message type: {Type}", messageType);
+                        _logger.LogWarning("Unknown VNC message type: {Type}", messageType);
                         // Can't skip unknown messages without knowing their length
                         // Just break the loop to avoid getting stuck
-                        _logger?.LogWarning("Breaking message loop due to unknown message type");
+                        _logger.LogWarning("Breaking message loop due to unknown message type");
                         return;
                 }
             }
             catch (OperationCanceledException)
             {
-                _logger?.LogInformation("VNC message loop cancelled");
+                _logger.LogInformation("VNC message loop cancelled");
                 break;
             }
             catch (IOException ex) when (ex.InnerException is SocketException socketEx &&
                                           (socketEx.ErrorCode == 10053 || socketEx.ErrorCode == 10054 || socketEx.ErrorCode == 995))
             {
                 // Connection closed/aborted by client - this is expected during disconnection
-                _logger?.LogDebug("Client disconnected during message loop (socket error {ErrorCode})",
+                _logger.LogDebug("Client disconnected during message loop (socket error {ErrorCode})",
                     ((SocketException)ex.InnerException).ErrorCode);
                 break;
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Unexpected error in VNC message loop");
+                _logger.LogError(ex, "Unexpected error in VNC message loop");
                 break;
             }
         }
@@ -439,7 +439,7 @@ public class VncConnectionHandler : IDisposable
             BlueShift = buffer[15]
         };
 
-        _logger?.LogInformation("Client pixel format: {BitsPerPixel}bpp, depth={Depth}, R={RedMax}@{RedShift}, G={GreenMax}@{GreenShift}, B={BlueMax}@{BlueShift}, BigEndian={BigEndian}",
+        _logger.LogInformation("Client pixel format: {BitsPerPixel}bpp, depth={Depth}, R={RedMax}@{RedShift}, G={GreenMax}@{GreenShift}, B={BlueMax}@{BlueShift}, BigEndian={BigEndian}",
             buffer[3], buffer[4], BitConverter.ToUInt16(buffer.Skip(7).Take(2).Reverse().ToArray(), 0), buffer[13],
             BitConverter.ToUInt16(buffer.Skip(9).Take(2).Reverse().ToArray(), 0), buffer[14],
             BitConverter.ToUInt16(buffer.Skip(11).Take(2).Reverse().ToArray(), 0), buffer[15],
@@ -484,7 +484,7 @@ public class VncConnectionHandler : IDisposable
             var primaryScreen = System.Windows.Forms.Screen.PrimaryScreen;
             if (primaryScreen == null)
             {
-                _logger?.LogError("Primary screen is not available");
+                _logger.LogError("Primary screen is not available");
                 return;
             }
             var screen = primaryScreen.Bounds;
@@ -520,7 +520,7 @@ public class VncConnectionHandler : IDisposable
             
             if (pixelData.Length != expectedPixelDataSize)
             {
-                _logger?.LogError("Pixel data size mismatch: expected {Expected}, got {Actual}", expectedPixelDataSize, pixelData.Length);
+                _logger.LogError("Pixel data size mismatch: expected {Expected}, got {Actual}", expectedPixelDataSize, pixelData.Length);
             }
             
             // Send header first
@@ -543,7 +543,7 @@ public class VncConnectionHandler : IDisposable
                                       (socketEx.ErrorCode == 10053 || socketEx.ErrorCode == 10054 || socketEx.ErrorCode == 995))
         {
             // Connection closed/aborted by client - this is expected during disconnection
-            _logger?.LogDebug("Client disconnected during framebuffer update (socket error {ErrorCode})",
+            _logger.LogDebug("Client disconnected during framebuffer update (socket error {ErrorCode})",
                 ((SocketException)ex.InnerException).ErrorCode);
             throw; // Re-throw to exit the message loop
         }
@@ -554,7 +554,7 @@ public class VncConnectionHandler : IDisposable
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Unexpected error sending framebuffer update");
+            _logger.LogError(ex, "Unexpected error sending framebuffer update");
             throw;
         }
     }
@@ -570,7 +570,7 @@ public class VncConnectionHandler : IDisposable
         var expectedRgbSize = pixelCount * 3;
         if (rgbData.Length != expectedRgbSize)
         {
-            _logger?.LogError("RGB data size mismatch: expected {Expected}, got {Actual}", expectedRgbSize, rgbData.Length);
+            _logger.LogError("RGB data size mismatch: expected {Expected}, got {Actual}", expectedRgbSize, rgbData.Length);
             throw new InvalidOperationException($"RGB data size mismatch: expected {expectedRgbSize}, got {rgbData.Length}");
         }
         
@@ -653,7 +653,7 @@ public class VncConnectionHandler : IDisposable
             else
             {
                 // For unsupported formats, reject the connection or use a supported format
-                _logger?.LogError("Unsupported pixel format: {BitsPerPixel} bpp, depth {Depth}. Cannot convert pixel data.", 
+                _logger.LogError("Unsupported pixel format: {BitsPerPixel} bpp, depth {Depth}. Cannot convert pixel data.", 
                     bitsPerPixel, _clientPixelFormat.Depth);
                 throw new NotSupportedException($"Unsupported pixel format: {bitsPerPixel} bpp");
             }
@@ -663,7 +663,7 @@ public class VncConnectionHandler : IDisposable
         var expectedOutputSize = pixelCount * bytesPerPixel;
         if (output.Length != expectedOutputSize)
         {
-            _logger?.LogError("Output pixel data size mismatch: expected {Expected}, got {Actual}", expectedOutputSize, output.Length);
+            _logger.LogError("Output pixel data size mismatch: expected {Expected}, got {Actual}", expectedOutputSize, output.Length);
             throw new InvalidOperationException($"Output pixel data size mismatch: expected {expectedOutputSize}, got {output.Length}");
         }
         
@@ -684,7 +684,7 @@ public class VncConnectionHandler : IDisposable
         var vk = ConvertKeysymToVirtualKey(keysym);
         if (vk == 0)
         {
-            _logger?.LogDebug("Unknown keysym: 0x{Keysym:X8}", keysym);
+            _logger.LogDebug("Unknown keysym: 0x{Keysym:X8}", keysym);
             return;
         }
 

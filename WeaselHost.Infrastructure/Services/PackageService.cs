@@ -13,10 +13,10 @@ public sealed class PackageService : IPackageService
         "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe",
         "LocalState",
         "DiagOutputDir");
-    private readonly ILogger<PackageService>? _logger;
+    private readonly ILogger<PackageService> _logger;
     private readonly WinGetPackageManager _packageManager;
 
-    public PackageService(ILogger<PackageService>? logger = null)
+    public PackageService(ILogger<PackageService> logger)
     {
         _logger = logger;
         _packageManager = new WinGetPackageManager();
@@ -24,10 +24,10 @@ public sealed class PackageService : IPackageService
 
     public Task<IReadOnlyCollection<InstalledApplication>> GetInstalledApplicationsAsync(CancellationToken cancellationToken = default)
     {
-        _logger?.LogInformation("Reading installed applications from registry");
+        _logger.LogInformation("Reading installed applications from registry");
         var results = new List<InstalledApplication>();
         ReadApplicationsFromRegistry(results);
-        _logger?.LogInformation("Found {Count} installed applications", results.Count);
+        _logger.LogInformation("Found {Count} installed applications", results.Count);
         return Task.FromResult<IReadOnlyCollection<InstalledApplication>>(results);
     }
 
@@ -45,7 +45,7 @@ public sealed class PackageService : IPackageService
 
         try
         {
-            _logger?.LogInformation("Installing package: {Package}", packageIdentifierOrPath);
+            _logger.LogInformation("Installing package: {Package}", packageIdentifierOrPath);
             
             // WGet.NET doesn't support cancellation tokens directly, so we wrap it
             var installTask = Task.Run(() => _packageManager.InstallPackage(packageIdentifierOrPath), cancellationToken);
@@ -53,7 +53,7 @@ public sealed class PackageService : IPackageService
 
             if (result)
             {
-                _logger?.LogInformation("Package installed successfully: {Package}", packageIdentifierOrPath);
+                _logger.LogInformation("Package installed successfully: {Package}", packageIdentifierOrPath);
                 var message = $"Successfully installed {packageIdentifierOrPath}.";
                 var logHint = Directory.Exists(WingetLogDirectory)
                     ? $" See winget logs under {WingetLogDirectory}."
@@ -62,18 +62,18 @@ public sealed class PackageService : IPackageService
             }
             else
             {
-                _logger?.LogWarning("Package installation failed: {Package}", packageIdentifierOrPath);
+                _logger.LogWarning("Package installation failed: {Package}", packageIdentifierOrPath);
                 return new PackageOperationResult(false, -1, $"Failed to install {packageIdentifierOrPath}. See winget logs under {WingetLogDirectory}.");
             }
         }
         catch (OperationCanceledException)
         {
-            _logger?.LogWarning("Package installation was cancelled: {Package}", packageIdentifierOrPath);
+            _logger.LogWarning("Package installation was cancelled: {Package}", packageIdentifierOrPath);
             return new PackageOperationResult(false, -1, "Installation was cancelled.");
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error installing package: {Package}", packageIdentifierOrPath);
+            _logger.LogError(ex, "Error installing package: {Package}", packageIdentifierOrPath);
             return new PackageOperationResult(false, -1, $"Failed to install {packageIdentifierOrPath}: {ex.Message}");
         }
     }
@@ -92,7 +92,7 @@ public sealed class PackageService : IPackageService
 
         try
         {
-            _logger?.LogInformation("Uninstalling package: {Package}", packageIdentifierOrProductCode);
+            _logger.LogInformation("Uninstalling package: {Package}", packageIdentifierOrProductCode);
             
             // WGet.NET doesn't support cancellation tokens directly, so we wrap it
             var uninstallTask = Task.Run(() => _packageManager.UninstallPackage(packageIdentifierOrProductCode), cancellationToken);
@@ -100,7 +100,7 @@ public sealed class PackageService : IPackageService
 
             if (result)
             {
-                _logger?.LogInformation("Package uninstalled successfully: {Package}", packageIdentifierOrProductCode);
+                _logger.LogInformation("Package uninstalled successfully: {Package}", packageIdentifierOrProductCode);
                 var message = $"Successfully uninstalled {packageIdentifierOrProductCode}.";
                 var logHint = Directory.Exists(WingetLogDirectory)
                     ? $" See winget logs under {WingetLogDirectory}."
@@ -109,18 +109,18 @@ public sealed class PackageService : IPackageService
             }
             else
             {
-                _logger?.LogWarning("Package uninstallation failed: {Package}", packageIdentifierOrProductCode);
+                _logger.LogWarning("Package uninstallation failed: {Package}", packageIdentifierOrProductCode);
                 return new PackageOperationResult(false, -1, $"Failed to uninstall {packageIdentifierOrProductCode}. See winget logs under {WingetLogDirectory}.");
             }
         }
         catch (OperationCanceledException)
         {
-            _logger?.LogWarning("Package uninstallation was cancelled: {Package}", packageIdentifierOrProductCode);
+            _logger.LogWarning("Package uninstallation was cancelled: {Package}", packageIdentifierOrProductCode);
             return new PackageOperationResult(false, -1, "Uninstallation was cancelled.");
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error uninstalling package: {Package}", packageIdentifierOrProductCode);
+            _logger.LogError(ex, "Error uninstalling package: {Package}", packageIdentifierOrProductCode);
             return new PackageOperationResult(false, -1, $"Failed to uninstall {packageIdentifierOrProductCode}: {ex.Message}");
         }
     }
@@ -144,7 +144,7 @@ public sealed class PackageService : IPackageService
 
         try
         {
-            _logger?.LogInformation("Showing package details for: {Identifier}", identifierOrMoniker);
+            _logger.LogInformation("Showing package details for: {Identifier}", identifierOrMoniker);
             
             // WGet.NET's SearchPackage method for searching
             var searchTask = Task.Run(() => _packageManager.SearchPackage(identifierOrMoniker, false), cancellationToken);
@@ -162,7 +162,7 @@ public sealed class PackageService : IPackageService
 
             if (exactMatch != null)
             {
-                _logger?.LogInformation("Found exact match for package: {Identifier}", identifierOrMoniker);
+                _logger.LogInformation("Found exact match for package: {Identifier}", identifierOrMoniker);
                 var details = MapToPackageDetails(exactMatch);
                 return new PackageShowResponse(true, null, details, Array.Empty<PackageSearchResult>());
             }
@@ -170,25 +170,25 @@ public sealed class PackageService : IPackageService
             // If multiple matches, return them as alternatives
             if (packages.Count > 1)
             {
-                _logger?.LogInformation("Found {Count} matches for package: {Identifier}", packages.Count, identifierOrMoniker);
+                _logger.LogInformation("Found {Count} matches for package: {Identifier}", packages.Count, identifierOrMoniker);
                 var alternatives = packages.Select(MapToPackageSearchResult).ToList();
                 return new PackageShowResponse(false, "Multiple packages matched. Please refine your query.", null, alternatives);
             }
 
             // Single match
-            _logger?.LogInformation("Found single match for package: {Identifier}", identifierOrMoniker);
+            _logger.LogInformation("Found single match for package: {Identifier}", identifierOrMoniker);
             var singlePackage = packages[0];
             var singleDetails = MapToPackageDetails(singlePackage);
             return new PackageShowResponse(true, null, singleDetails, Array.Empty<PackageSearchResult>());
         }
         catch (OperationCanceledException)
         {
-            _logger?.LogWarning("Package show was cancelled: {Identifier}", identifierOrMoniker);
+            _logger.LogWarning("Package show was cancelled: {Identifier}", identifierOrMoniker);
             return new PackageShowResponse(false, "Operation was cancelled.", null, Array.Empty<PackageSearchResult>());
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error showing package: {Identifier}", identifierOrMoniker);
+            _logger.LogError(ex, "Error showing package: {Identifier}", identifierOrMoniker);
             return new PackageShowResponse(false, $"Failed to get package information: {ex.Message}", null, Array.Empty<PackageSearchResult>());
         }
     }
@@ -212,7 +212,7 @@ public sealed class PackageService : IPackageService
 
         try
         {
-            _logger?.LogInformation("Searching winget for: {Query}", query);
+            _logger.LogInformation("Searching winget for: {Query}", query);
             
             // WGet.NET doesn't support cancellation tokens directly, so we wrap it
             // Add timeout of 60 seconds for search operations
@@ -224,21 +224,21 @@ public sealed class PackageService : IPackageService
 
             if (packages == null || packages.Count == 0)
             {
-                _logger?.LogWarning("Winget search returned no results for query: {Query}", query);
+                _logger.LogWarning("Winget search returned no results for query: {Query}", query);
                 return Array.Empty<PackageSearchResult>();
             }
 
-            _logger?.LogInformation("Found {Count} packages via WGet.NET", packages.Count);
+            _logger.LogInformation("Found {Count} packages via WGet.NET", packages.Count);
             return packages.Select(MapToPackageSearchResult).ToList();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || cancellationToken.IsCancellationRequested)
         {
-            _logger?.LogWarning("Winget search was cancelled for query: {Query}", query);
+            _logger.LogWarning("Winget search was cancelled for query: {Query}", query);
             return Array.Empty<PackageSearchResult>();
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "Error during winget search for query: {Query}", query);
+            _logger.LogError(ex, "Error during winget search for query: {Query}", query);
             return Array.Empty<PackageSearchResult>();
         }
     }
