@@ -4,7 +4,7 @@ Track ongoing work and technical debt for the Weasel project.
 
 ## In Progress
 
-- [ ] Template consolidation - Combined 11 templates into 5 workflow phases
+(None currently)
 
 ## Technical Debt
 
@@ -34,6 +34,8 @@ Track ongoing work and technical debt for the Weasel project.
 - [x] ~~VNC pause delay setting missing from UI~~ - Added slider in Settings > VNC Recording
 - [x] ~~Monitoring services not responding to config changes~~ - Fixed StartAsync pattern
 - [x] ~~Email SSL handshake failure~~ - Fixed SmtpClient initialization
+- [x] ~~Template consolidation~~ - Combined 11 templates into 5 workflow phases
+- [x] ~~VNC status bar confusing indicators~~ - Split into separate Recording and Motion Detection badges
 
 ## Feature Ideas
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Send, Camera, Circle, Square } from "lucide-react";
+import { Send, Camera, Circle, Square, Pause, Activity } from "lucide-react";
 import type { VncRecordingSession, VncRecordingOptions } from "../types";
 // Dynamic import for noVNC to handle module resolution
 let RFB: any;
@@ -36,6 +36,7 @@ export default function VncViewer({ host, port, password, viewOnly = false, shar
   const motionDetectionIntervalRef = useRef<number | null>(null);
   const noMotionTimeoutRef = useRef<number | null>(null);
   const [motionDetected, setMotionDetected] = useState(false);
+  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -425,6 +426,7 @@ export default function VncViewer({ host, port, password, viewOnly = false, shar
             if (recorder.state === "paused") {
               console.log('[VNC Recording] Resuming recording due to motion');
               recorder.resume();
+              setIsRecordingPaused(false);
             }
           } else {
             // No motion detected - start timeout to pause after configured delay
@@ -435,6 +437,7 @@ export default function VncViewer({ host, port, password, viewOnly = false, shar
                 if (recorder.state === "recording") {
                   console.log(`[VNC Recording] Pausing recording after ${pauseDelayMs / 1000}s of no motion`);
                   recorder.pause();
+                  setIsRecordingPaused(true);
                 }
                 noMotionTimeoutRef.current = null;
               }, pauseDelayMs);
@@ -532,6 +535,7 @@ export default function VncViewer({ host, port, password, viewOnly = false, shar
       setIsRecording(false);
       setRecordingSession(null);
       setMotionDetected(false);
+      setIsRecordingPaused(false);
       lastFrameDataRef.current = null;
     } catch (error) {
       console.error("Failed to stop recording:", error);
@@ -592,13 +596,35 @@ export default function VncViewer({ host, port, password, viewOnly = false, shar
           <div className={`w-2 h-2 rounded-full ${isConnected ? "bg-green-500" : "bg-red-500"}`} />
           <span className="text-sm">{connectionStatus}</span>
           {isRecording && (
-            <div className="flex items-center gap-1.5 ml-2 px-2 py-1 bg-red-900/30 border border-red-500/50 rounded">
-              <Circle size={10} className={`fill-red-500 ${motionDetected ? "animate-pulse" : ""}`} />
-              <span className="text-xs text-red-400">REC</span>
-              {recordingOptions?.enableMotionDetection && (
-                <span className="text-xs text-gray-400">
-                  {motionDetected ? "Motion" : "Paused"}
+            <div className="flex items-center gap-2 ml-2">
+              {/* Recording indicator */}
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded border ${
+                isRecordingPaused
+                  ? "bg-yellow-900/30 border-yellow-500/50"
+                  : "bg-red-900/30 border-red-500/50"
+              }`}>
+                {isRecordingPaused ? (
+                  <Pause size={10} className="text-yellow-500" />
+                ) : (
+                  <Circle size={10} className="fill-red-500 animate-pulse" />
+                )}
+                <span className={`text-xs ${isRecordingPaused ? "text-yellow-400" : "text-red-400"}`}>
+                  {isRecordingPaused ? "PAUSED" : "REC"}
                 </span>
+              </div>
+
+              {/* Motion detection indicator (only when enabled) */}
+              {recordingOptions?.enableMotionDetection && (
+                <div className={`flex items-center gap-1.5 px-2 py-1 rounded border ${
+                  motionDetected
+                    ? "bg-green-900/30 border-green-500/50"
+                    : "bg-slate-800/50 border-slate-600/50"
+                }`}>
+                  <Activity size={10} className={motionDetected ? "text-green-500" : "text-slate-500"} />
+                  <span className={`text-xs ${motionDetected ? "text-green-400" : "text-slate-500"}`}>
+                    {motionDetected ? "Motion" : "Still"}
+                  </span>
+                </div>
               )}
             </div>
           )}

@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Allows users to configure how long to wait before pausing recording when no motion is detected
   - Range: 1-60 seconds (default: 10 seconds)
 
+### Changed
+- **VNC Status Bar**: Redesigned recording indicators for better clarity
+  - Split combined indicator into separate "Recording" and "Motion Detection" badges
+  - Recording badge shows red pulsing "REC" when actively recording, yellow "PAUSED" when paused
+  - Motion badge shows green "Motion" when movement detected, gray "Still" when no motion
+  - Motion detection indicator only shown when motion detection is enabled
+
 ### Fixed
 - **Monitoring Services**: Fixed services not responding to configuration changes
   - ApplicationMonitorService and DiskMonitorService now check Enabled inside the loop
