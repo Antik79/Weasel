@@ -1,7 +1,8 @@
-using System.Net;
-using System.Net.Mail;
+using MailKit.Net.Smtp;
+using MailKit.Security;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using MimeKit;
 using WeaselHost.Core;
 using WeaselHost.Core.Abstractions;
 using WeaselHost.Core.Configuration;
@@ -59,38 +60,51 @@ public sealed class EmailService : IEmailService
 
         try
         {
-            using var client = new SmtpClient
-            {
-                Host = smtp.Host,
-                Port = smtp.Port,
-                EnableSsl = smtp.EnableSsl,
-                DeliveryMethod = SmtpDeliveryMethod.Network,
-                UseDefaultCredentials = false,
-                Timeout = WeaselConstants.Timeouts.SmtpTimeoutMilliseconds
-            };
-
-            if (!string.IsNullOrWhiteSpace(smtp.Username) && !string.IsNullOrWhiteSpace(smtp.Password))
-            {
-                client.Credentials = new NetworkCredential(smtp.Username, smtp.Password);
-            }
-
-            using var message = new MailMessage
-            {
-                From = new MailAddress(smtp.FromAddress, smtp.FromName),
-                Subject = subject,
-                Body = body,
-                IsBodyHtml = false
-            };
+            // Build the message using MimeKit
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress(smtp.FromName ?? "Weasel", smtp.FromAddress));
 
             foreach (var recipient in recipients)
             {
                 if (!string.IsNullOrWhiteSpace(recipient))
                 {
-                    message.To.Add(recipient);
+                    message.To.Add(MailboxAddress.Parse(recipient));
                 }
             }
 
-            await client.SendMailAsync(message, cancellationToken);
+            message.Subject = subject;
+            message.Body = new TextPart("plain") { Text = body };
+
+            // Determine the secure socket option based on port and SSL setting
+            // Port 465 = Implicit SSL (SslOnConnect)
+            // Port 587 = STARTTLS (StartTls or StartTlsWhenAvailable)
+            // Port 25 = Plain or STARTTLS (StartTlsWhenAvailable)
+            var secureSocketOptions = DetermineSecureSocketOptions(smtp.Port, smtp.EnableSsl);
+
+            using var client = new SmtpClient();
+
+            // Set timeout
+            client.Timeout = WeaselConstants.Timeouts.SmtpTimeoutMilliseconds;
+
+            _logger.LogDebug(
+                "Connecting to SMTP server {Host}:{Port} with security: {Security}",
+                smtp.Host, smtp.Port, secureSocketOptions);
+
+            // Connect to the server
+            await client.ConnectAsync(smtp.Host, smtp.Port, secureSocketOptions, cancellationToken);
+
+            // Authenticate if credentials are provided
+            if (!string.IsNullOrWhiteSpace(smtp.Username) && !string.IsNullOrWhiteSpace(smtp.Password))
+            {
+                await client.AuthenticateAsync(smtp.Username, smtp.Password, cancellationToken);
+            }
+
+            // Send the message
+            await client.SendAsync(message, cancellationToken);
+
+            // Disconnect cleanly
+            await client.DisconnectAsync(true, cancellationToken);
+
             _logger.LogInformation("Sent email to {Count} recipients", recipients.Count);
         }
         catch (Exception ex)
@@ -99,5 +113,32 @@ public sealed class EmailService : IEmailService
             throw;
         }
     }
-}
 
+    /// <summary>
+    /// Determines the appropriate secure socket options based on port and SSL setting.
+    /// </summary>
+    private static SecureSocketOptions DetermineSecureSocketOptions(int port, bool enableSsl)
+    {
+        // Port 465 is the implicit SSL port - connection is encrypted from the start
+        if (port == 465)
+        {
+            return SecureSocketOptions.SslOnConnect;
+        }
+
+        // Port 587 is the submission port - typically uses STARTTLS
+        if (port == 587)
+        {
+            return enableSsl ? SecureSocketOptions.StartTls : SecureSocketOptions.StartTlsWhenAvailable;
+        }
+
+        // Port 25 is the traditional SMTP port
+        if (port == 25)
+        {
+            return enableSsl ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None;
+        }
+
+        // For any other port, use the EnableSsl setting to decide
+        // If SSL is enabled and it's not a known STARTTLS port, assume implicit SSL
+        return enableSsl ? SecureSocketOptions.Auto : SecureSocketOptions.None;
+    }
+}

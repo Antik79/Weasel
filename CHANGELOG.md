@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Monitoring Services**: Fixed services not responding to configuration changes
   - ApplicationMonitorService and DiskMonitorService now check Enabled inside the loop
   - Services respond to enable/disable without requiring restart
+- **SMTP Email**: Fixed email sending on port 465 (implicit SSL)
+  - Migrated from System.Net.Mail.SmtpClient to MailKit for proper SSL/TLS support
+  - Port 465 now uses implicit SSL (SslOnConnect) automatically
+  - Port 587 uses STARTTLS as expected
+  - Better error handling and connection logging
 
 ### Changed
 - **Code Quality**: Refactored services for better maintainability
