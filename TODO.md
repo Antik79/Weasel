@@ -14,11 +14,36 @@ Track ongoing work and technical debt for the Weasel project.
   - Consider creating `BackgroundMonitoringServiceBase` class
   - See `.claude/templates/02-implementation.md` for base class pattern
 
+- [ ] **Slow shutdown process** - Application takes too long to shut down
+  - Investigate which services are blocking shutdown
+  - Implement graceful cancellation with appropriate timeouts
+  - Consider adding shutdown progress indication
+
+- [ ] **Password change requires restart** - New login password doesn't work until server restart
+  - Need to implement hot-reload for security settings OR
+  - Show user confirmation dialog explaining restart is required, then auto-restart
+  - Audit all settings to identify which require restart vs hot-reload
+  - Document restart-required settings in UI with visual indicator
+  - Add this check to implementation workflow template
+
 ### Medium Priority
 
 - [ ] **Inconsistent API responses** - Different error formats across endpoints in Program.cs
   - Should use consistent `ApiError` record format
   - See `.claude/templates/02-implementation.md` for API response standards
+
+- [ ] **Theme system not utilized** - Started theme work but not fully implemented
+  - Implement proper CSS variables/theming system
+  - Create default themes: "Weasel" (current), "Dark", "Light"
+  - Make all colors and styling configurable via theme
+  - Add theme selector in Settings
+  - Add theming requirements to implementation workflow template
+
+- [ ] **i18n system neglected** - Internationalization started but incomplete
+  - Audit all hardcoded strings in UI
+  - Complete translation files for supported languages
+  - Add i18n requirements to implementation workflow template
+  - Ensure all new UI text uses translation system
 
 ### Low Priority
 
@@ -39,6 +64,7 @@ Track ongoing work and technical debt for the Weasel project.
 - [x] ~~Files page Select All~~ - Added Select all checkbox in Folders and Files panel headers
 - [x] ~~Files page MIME type detection~~ - Added file type categorization with appropriate icons and actions
 - [x] ~~Pagination labels too verbose~~ - Simplified pagination UI, removed "Items per page" label
+- [x] ~~SMTP implicit SSL support~~ - Migrated to MailKit for proper port 465/587 support
 
 ## Feature Ideas
 

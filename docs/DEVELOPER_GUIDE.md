@@ -92,6 +92,13 @@ The API is defined in `WeaselHost.Web/Program.cs`. Key groups include:
 ### Storage Monitor
 Implemented in `DiskMonitorService.cs`. It runs as a hosted service (`IHostedService`), periodically checking disk space and folder sizes based on `DiskMonitoringOptions`. It supports both "Over" and "Under" threshold directions for folder monitoring. It sends email alerts via SMTP if thresholds are breached.
 
+### Email Service
+Implemented in `EmailService.cs` using **MailKit** library. Supports both implicit SSL (port 465) and STARTTLS (port 587):
+- Port 465: Uses `SecureSocketOptions.SslOnConnect` (implicit SSL)
+- Port 587: Uses `SecureSocketOptions.StartTls` (explicit TLS)
+- Port 25: Uses `SecureSocketOptions.StartTlsWhenAvailable` or plain
+- Automatic security option detection based on port number
+
 ### Application Monitor
 Implemented in `ApplicationMonitorService.cs`. It runs as a hosted service, periodically checking if monitored applications are running. If an application is not running, it automatically restarts it after a configured delay. It includes detailed logging with event log entries.
 
@@ -171,16 +178,53 @@ Implemented via middleware in `Program.cs`. If `Security.RequireAuthentication` 
   - Collapsible log display with expansion state persistence
   - Auto-refresh capability with configurable intervals
   - Component-specific log display
-- **Pagination**: Reusable pagination component for large data sets (`webui/src/sections/PackageManager.tsx`)
-  - Auto-hides when only one page
-  - Shows current page, total pages, and item count
-  - Previous/Next navigation
+- **Pagination**: Reusable pagination component for large data sets (`webui/src/components/Pagination.tsx`)
+  - Compact design with page navigation on left, size selector on right
+  - Auto-hides navigation when only one page
+  - Supports page sizes: 25, 50, 100, All
+
+### File Type System
+
+The File Explorer uses a MIME type categorization system (`webui/src/sections/FileExplorer.tsx`):
+
+| Category | Extensions | Icon | Actions |
+|----------|------------|------|---------|
+| Image | png, jpg, gif, bmp, webp, svg, ico, tiff | Image (green) | View, Download |
+| Video | mp4, webm, mkv, avi, mov, wmv, flv | Video (pink) | Download only |
+| Audio | mp3, wav, ogg, flac, aac, wma, m4a | Music (purple) | Download only |
+| Archive | zip, rar, 7z, tar, gz, bz2, xz, tgz | FileArchive (amber) | Unzip (zip), Download |
+| Code | js, ts, cs, py, java, cpp, go, rs, rb, php, etc. | FileCode (blue) | Edit, Tail, Download |
+| Text | txt, md, log, json, xml, yml, ini, cfg, csv | FileText (slate) | Edit, Tail, Download |
+| Executable | exe, msi, bat, cmd, ps1, sh, dll | Cog (red) | Download only |
+| Document | pdf, doc, docx, xls, xlsx, ppt, pptx | FileText (orange) | Download only |
+| Unknown | * | File (slate) | Download only |
+
+Key functions:
+- `getFileCategory(filePath)`: Returns the file category
+- `canEditFile(filePath)`: Returns true for code/text files
+- `canTailFile(filePath)`: Returns true for code/text files
+- `getFileIcon(filePath)`: Returns icon component and color class
 
 ### Layout Patterns
 
 - **Two-Panel Layout**: Used in Files and Logs sections for hierarchical data browsing
 - **Submenu Navigation**: All sections with multiple views use `SubmenuNav` for consistency
 - **Breadcrumbs**: Path navigation for hierarchical structures
+
+## Key Dependencies
+
+### Backend (.NET)
+- **MailKit**: Modern email library for SMTP with proper SSL/TLS support
+- **WGet.NET**: Windows package manager (winget) integration
+- **System.ServiceProcess.ServiceController**: Windows service management
+- **System.Diagnostics.PerformanceCounter**: Performance monitoring
+
+### Frontend (npm)
+- **@novnc/novnc**: VNC client library
+- **@xterm/xterm**: Terminal emulator
+- **@monaco-editor/react**: Code editor
+- **swr**: Data fetching with caching
+- **lucide-react**: Icon library
 
 ## Building for Release
 
