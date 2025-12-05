@@ -28,6 +28,14 @@ Track ongoing work and technical debt for the Weasel project.
 
 ### Medium Priority
 
+- [ ] **Background services lack activity logging** - LogPanel shows empty for services with no events
+  - ApplicationMonitorService only logs when apps need restart or errors occur
+  - DiskMonitorService only logs when thresholds are breached
+  - Services should log periodic "heartbeat" or status messages when enabled
+  - Example: "ApplicationMonitor: Checked 3 applications, all running" every N minutes
+  - This helps users confirm the service is actively monitoring
+  - Add logging requirements to implementation workflow template
+
 - [ ] **Inconsistent API responses** - Different error formats across endpoints in Program.cs
   - Should use consistent `ApiError` record format
   - See `.claude/templates/02-implementation.md` for API response standards
