@@ -20,12 +20,19 @@ import {
   ArrowDown,
   Pencil,
   Eye,
-  MoreHorizontal,
-  Menu,
   Search as SearchIcon,
   FileEdit,
   HardDrive,
-  Image
+  Image,
+  Video,
+  Music,
+  FileCode,
+  File,
+  Cog,
+  FileSpreadsheet,
+  CheckSquare,
+  Square,
+  Minus
 } from "lucide-react";
 
 // Lazy load Monaco Editor - only loads when editing a file
@@ -123,6 +130,91 @@ const detectLanguage = (filePath: string) => {
 const isImageFile = (filePath: string) => {
   const ext = filePath.split(".").pop()?.toLowerCase();
   return ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico"].includes(ext || "");
+};
+
+// MIME type categories for file handling
+type FileCategory = "image" | "video" | "audio" | "archive" | "code" | "text" | "executable" | "document" | "unknown";
+
+const getFileCategory = (filePath: string): FileCategory => {
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+
+  // Images - can be viewed
+  if (["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg", "ico", "tiff", "tif"].includes(ext)) {
+    return "image";
+  }
+  // Videos - download only
+  if (["mp4", "webm", "mkv", "avi", "mov", "wmv", "flv", "m4v"].includes(ext)) {
+    return "video";
+  }
+  // Audio - download only
+  if (["mp3", "wav", "ogg", "flac", "aac", "wma", "m4a"].includes(ext)) {
+    return "audio";
+  }
+  // Archives - can be unzipped (zip) or download only
+  if (["zip", "rar", "7z", "tar", "gz", "bz2", "xz", "tgz"].includes(ext)) {
+    return "archive";
+  }
+  // Code files - can be edited
+  if (["js", "jsx", "ts", "tsx", "cs", "py", "java", "cpp", "c", "h", "hpp", "go", "rs", "rb", "php", "swift", "kt", "scala", "sql", "html", "css", "scss", "less", "vue", "svelte"].includes(ext)) {
+    return "code";
+  }
+  // Text files - can be edited/tailed
+  if (["txt", "md", "log", "json", "xml", "yml", "yaml", "ini", "cfg", "conf", "env", "gitignore", "dockerignore", "editorconfig", "csv", "tsv"].includes(ext)) {
+    return "text";
+  }
+  // Executables - download only (security)
+  if (["exe", "msi", "bat", "cmd", "ps1", "sh", "dll", "so", "dylib"].includes(ext)) {
+    return "executable";
+  }
+  // Documents - download only (binary formats)
+  if (["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp"].includes(ext)) {
+    return "document";
+  }
+
+  return "unknown";
+};
+
+// Check if file can be edited (text-based files)
+const canEditFile = (filePath: string): boolean => {
+  const category = getFileCategory(filePath);
+  return category === "code" || category === "text";
+};
+
+// Check if file can be tailed/monitored (text-based files)
+const canTailFile = (filePath: string): boolean => {
+  const category = getFileCategory(filePath);
+  return category === "code" || category === "text";
+};
+
+// Get icon component and color for file category
+const getFileIcon = (filePath: string): { icon: React.ReactNode; color: string } => {
+  const category = getFileCategory(filePath);
+  const ext = filePath.split(".").pop()?.toLowerCase() || "";
+
+  switch (category) {
+    case "image":
+      return { icon: <Image size={18} />, color: "text-green-300" };
+    case "video":
+      return { icon: <Video size={18} />, color: "text-pink-300" };
+    case "audio":
+      return { icon: <Music size={18} />, color: "text-purple-300" };
+    case "archive":
+      return { icon: <FileArchive size={18} />, color: "text-amber-300" };
+    case "code":
+      return { icon: <FileCode size={18} />, color: "text-blue-300" };
+    case "text":
+      return { icon: <FileText size={18} />, color: "text-slate-300" };
+    case "executable":
+      return { icon: <Cog size={18} />, color: "text-red-300" };
+    case "document":
+      // Specific icons for common document types
+      if (["xls", "xlsx", "ods", "csv"].includes(ext)) {
+        return { icon: <FileSpreadsheet size={18} />, color: "text-emerald-300" };
+      }
+      return { icon: <FileText size={18} />, color: "text-orange-300" };
+    default:
+      return { icon: <File size={18} />, color: "text-slate-400" };
+  }
 };
 
 export default function FileExplorer() {
@@ -573,9 +665,67 @@ export default function FileExplorer() {
     setSelectedItems(allPaths);
   };
 
+  const selectAllFolders = () => {
+    const dirs = Array.isArray(directories) ? directories : [];
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      dirs.forEach(dir => next.add(dir.fullPath));
+      return next;
+    });
+  };
+
+  const clearFoldersSelection = () => {
+    const dirs = Array.isArray(directories) ? directories : [];
+    const dirPaths = new Set(dirs.map(d => d.fullPath));
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      dirPaths.forEach(path => next.delete(path));
+      return next;
+    });
+  };
+
+  const selectAllFiles = () => {
+    const fileList = Array.isArray(files) ? files : [];
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      fileList.forEach(file => next.add(file.fullPath));
+      return next;
+    });
+  };
+
+  const clearFilesSelection = () => {
+    const fileList = Array.isArray(files) ? files : [];
+    const filePaths = new Set(fileList.map(f => f.fullPath));
+    setSelectedItems(prev => {
+      const next = new Set(prev);
+      filePaths.forEach(path => next.delete(path));
+      return next;
+    });
+  };
+
   const clearSelection = () => {
     setSelectedItems(new Set());
   };
+
+  // Calculate selection state for folders
+  const foldersSelectionState = useMemo(() => {
+    const dirs = Array.isArray(directories) ? directories : [];
+    if (dirs.length === 0) return "none";
+    const selectedCount = dirs.filter(d => selectedItems.has(d.fullPath)).length;
+    if (selectedCount === 0) return "none";
+    if (selectedCount === dirs.length) return "all";
+    return "partial";
+  }, [directories, selectedItems]);
+
+  // Calculate selection state for files
+  const filesSelectionState = useMemo(() => {
+    const fileList = Array.isArray(files) ? files : [];
+    if (fileList.length === 0) return "none";
+    const selectedCount = fileList.filter(f => selectedItems.has(f.fullPath)).length;
+    if (selectedCount === 0) return "none";
+    if (selectedCount === fileList.length) return "all";
+    return "partial";
+  }, [files, selectedItems]);
 
   const downloadItem = async (item: FileSystemItem) => {
     if (item.isDirectory) {
@@ -1175,6 +1325,27 @@ export default function FileExplorer() {
               </button>
             </div>
           </div>
+          {/* Select All Header Row */}
+          {directories.length > 0 && (
+            <div className="flex items-center gap-3 px-2 py-1.5 border-b border-slate-700 bg-slate-800/30">
+              <button
+                className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors"
+                onClick={() => {
+                  if (foldersSelectionState === "all") {
+                    clearFoldersSelection();
+                  } else {
+                    selectAllFolders();
+                  }
+                }}
+                title={foldersSelectionState === "all" ? "Deselect all folders" : "Select all folders"}
+              >
+                {foldersSelectionState === "none" && <Square size={14} />}
+                {foldersSelectionState === "partial" && <Minus size={14} className="text-sky-400" />}
+                {foldersSelectionState === "all" && <CheckSquare size={14} className="text-sky-400" />}
+                <span>Select all</span>
+              </button>
+            </div>
+          )}
           <div className="divide-y divide-slate-800 overflow-y-auto flex-1 pr-2">
             {isLoading && <p className="py-4 text-sm text-slate-400">Loading…</p>}
             {!isLoading && directories.length === 0 && (
@@ -1268,14 +1439,39 @@ export default function FileExplorer() {
               </button>
             </div>
           </div>
+          {/* Select All Header Row */}
+          {files.length > 0 && (
+            <div className="flex items-center gap-3 px-2 py-1.5 border-b border-slate-700 bg-slate-800/30">
+              <button
+                className="flex items-center gap-2 text-xs text-slate-400 hover:text-white transition-colors"
+                onClick={() => {
+                  if (filesSelectionState === "all") {
+                    clearFilesSelection();
+                  } else {
+                    selectAllFiles();
+                  }
+                }}
+                title={filesSelectionState === "all" ? "Deselect all files" : "Select all files"}
+              >
+                {filesSelectionState === "none" && <Square size={14} />}
+                {filesSelectionState === "partial" && <Minus size={14} className="text-sky-400" />}
+                {filesSelectionState === "all" && <CheckSquare size={14} className="text-sky-400" />}
+                <span>Select all</span>
+              </button>
+            </div>
+          )}
           <div className="divide-y divide-slate-800 overflow-y-auto flex-1 pr-2">
             {isLoading && <p className="py-4 text-sm text-slate-400">Loading…</p>}
             {!isLoading && files.length === 0 && (
               <p className="py-4 text-sm text-slate-400">No files</p>
             )}
             {Array.isArray(files) && files.map((file) => {
+              const category = getFileCategory(file.fullPath);
               const isZip = file.name.toLowerCase().endsWith(".zip");
-              const isImage = isImageFile(file.fullPath);
+              const isImage = category === "image";
+              const isEditable = canEditFile(file.fullPath);
+              const isTailable = canTailFile(file.fullPath);
+              const fileIcon = getFileIcon(file.fullPath);
               return (
                 <div
                   key={file.fullPath}
@@ -1291,13 +1487,9 @@ export default function FileExplorer() {
                       className="checkbox flex-shrink-0"
                       onClick={(e) => e.stopPropagation()}
                     />
-                    {isZip ? (
-                      <FileArchive size={18} className="text-purple-300 flex-shrink-0" />
-                    ) : isImage ? (
-                      <Image size={18} className="text-green-300 flex-shrink-0" />
-                    ) : (
-                      <FileText size={18} className="text-sky-300 flex-shrink-0" />
-                    )}
+                    <span className={`flex-shrink-0 ${fileIcon.color}`}>
+                      {fileIcon.icon}
+                    </span>
                     <div className="min-w-0">
                       <p className="font-medium truncate">{file.name}</p>
                       <p className="text-xs text-slate-400">
@@ -1314,13 +1506,18 @@ export default function FileExplorer() {
                         <FileArchive size={14} />
                       </button>
                     )}
-                    {!isZip && !isImage && (
+                    {isEditable && (
                       <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startEditing(file); }} title="Edit">
                         <Pencil size={14} />
                       </button>
                     )}
-                    {!isZip && (
-                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startTailing(file.fullPath); }} title={isImage ? "View" : "Tail"}>
+                    {isImage && (
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startTailing(file.fullPath); }} title="View">
+                        <Eye size={14} />
+                      </button>
+                    )}
+                    {isTailable && !isImage && (
+                      <button className="icon-btn" onClick={(e) => { e.stopPropagation(); startTailing(file.fullPath); }} title="Tail">
                         <Eye size={14} />
                       </button>
                     )}
@@ -1461,74 +1658,86 @@ export default function FileExplorer() {
         </div>
       )}
 
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onClose={() => setContextMenu(null)}
-          items={[
-            ...(contextMenu.item.isDirectory ? [{
-              label: "Open",
-              icon: <Folder size={14} />,
-              onClick: () => openDirectory(contextMenu.item!)
-            }] : []),
-            {
-              label: "Download",
-              icon: <Download size={14} />,
-              onClick: () => downloadItem(contextMenu.item!)
-            },
-            {
-              label: "Zip",
-              icon: <Archive size={14} />,
-              onClick: () => zipItem(contextMenu.item!)
-            },
-            ...(!contextMenu.item.isDirectory && !contextMenu.item.name.endsWith(".zip") ? [
+      {contextMenu && (() => {
+        const item = contextMenu.item;
+        const category = item.isDirectory ? null : getFileCategory(item.fullPath);
+        const isEditable = !item.isDirectory && canEditFile(item.fullPath);
+        const isTailable = !item.isDirectory && canTailFile(item.fullPath);
+        const isImage = category === "image";
+        const isZip = item.name.toLowerCase().endsWith(".zip");
+
+        return (
+          <ContextMenu
+            x={contextMenu.x}
+            y={contextMenu.y}
+            onClose={() => setContextMenu(null)}
+            items={[
+              ...(item.isDirectory ? [{
+                label: "Open",
+                icon: <Folder size={14} />,
+                onClick: () => openDirectory(item)
+              }] : []),
               {
-                label: "Edit",
-                icon: <Pencil size={14} />,
-                onClick: () => startEditing(contextMenu.item!)
+                label: "Download",
+                icon: <Download size={14} />,
+                onClick: () => downloadItem(item)
               },
               {
+                label: "Zip",
+                icon: <Archive size={14} />,
+                onClick: () => zipItem(item)
+              },
+              ...(isEditable ? [{
+                label: "Edit",
+                icon: <Pencil size={14} />,
+                onClick: () => startEditing(item)
+              }] : []),
+              ...(isImage ? [{
+                label: "View",
+                icon: <Eye size={14} />,
+                onClick: () => startTailing(item.fullPath)
+              }] : []),
+              ...(isTailable && !isImage ? [{
                 label: "Tail",
                 icon: <Eye size={14} />,
-                onClick: () => startTailing(contextMenu.item!.fullPath)
+                onClick: () => startTailing(item.fullPath)
+              }] : []),
+              {
+                label: "Copy",
+                icon: <Copy size={14} />,
+                onClick: () => {
+                  setClipboard({ items: [item.fullPath], operation: "copy" });
+                  setContextMenu(null);
+                }
+              },
+              {
+                label: "Cut",
+                icon: <Scissors size={14} />,
+                onClick: () => {
+                  setClipboard({ items: [item.fullPath], operation: "cut" });
+                  setContextMenu(null);
+                }
+              },
+              ...(isZip ? [{
+                label: "Unzip",
+                icon: <FileArchive size={14} />,
+                onClick: () => unzipFile(item.fullPath)
+              }] : []),
+              {
+                label: "Rename",
+                icon: <FileEdit size={14} />,
+                onClick: () => renameItem(item)
+              },
+              {
+                label: "Delete",
+                icon: <Trash2 size={14} />,
+                onClick: () => deleteItem(item),
+                danger: true
               }
-            ] : []),
-            {
-              label: "Copy",
-              icon: <Copy size={14} />,
-              onClick: () => {
-                setClipboard({ items: [contextMenu.item!.fullPath], operation: "copy" });
-                setContextMenu(null);
-              }
-            },
-            {
-              label: "Cut",
-              icon: <Scissors size={14} />,
-              onClick: () => {
-                setClipboard({ items: [contextMenu.item!.fullPath], operation: "cut" });
-                setContextMenu(null);
-              }
-            },
-            ...(contextMenu.item.name.endsWith(".zip") ? [{
-              label: "Unzip",
-              icon: <FileArchive size={14} />,
-              onClick: () => unzipFile(contextMenu.item!.fullPath)
-            }] : []),
-            {
-              label: "Rename",
-              icon: <FileEdit size={14} />,
-              onClick: () => renameItem(contextMenu.item!)
-            },
-            {
-              label: "Delete",
-              icon: <Trash2 size={14} />,
-              onClick: () => deleteItem(contextMenu.item!),
-              danger: true
-            }
-          ]}
-        />
-      )}
+            ]}
+          />
+        );
+      })()}
 
       {/* Confirmation Dialog */}
       <ConfirmDialog
@@ -1652,6 +1861,15 @@ export default function FileExplorer() {
           </div>
         </div>
       )}
+
+      {/* Hidden file input for upload */}
+      <input
+        id="file-upload-input"
+        type="file"
+        multiple
+        className="hidden"
+        onChange={uploadFiles}
+      />
     </section>
   );
 }

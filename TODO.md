@@ -36,6 +36,9 @@ Track ongoing work and technical debt for the Weasel project.
 - [x] ~~Email SSL handshake failure~~ - Fixed SmtpClient initialization
 - [x] ~~Template consolidation~~ - Combined 11 templates into 5 workflow phases
 - [x] ~~VNC status bar confusing indicators~~ - Split into separate Recording and Motion Detection badges
+- [x] ~~Files page Select All~~ - Added Select all checkbox in Folders and Files panel headers
+- [x] ~~Files page MIME type detection~~ - Added file type categorization with appropriate icons and actions
+- [x] ~~Pagination labels too verbose~~ - Simplified pagination UI, removed "Items per page" label
 
 ## Feature Ideas
 

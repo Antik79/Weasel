@@ -11,10 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **VNC Recording Settings**: Added "Pause Delay" slider in Settings > VNC Recording section
   - Allows users to configure how long to wait before pausing recording when no motion is detected
   - Range: 1-60 seconds (default: 10 seconds)
+- **Files Page - Select All**: Added "Select all" checkbox in Folders and Files panel headers
+  - Shows checkbox state (empty, partial, or checked) based on current selection
+  - Clicking toggles between selecting all and clearing selection for that panel
+- **Files Page - MIME Type Detection**: Added comprehensive file type categorization
+  - Files categorized into: Image, Video, Audio, Archive, Code, Text, Executable, Document, Unknown
+  - Each category has distinct icon and color for easy identification
+  - Edit and Tail buttons only shown for editable text-based files
+  - View button only shown for image files
+  - Context menu respects file type capabilities
 
 ### Changed
 - **VNC Status Bar**: Redesigned recording indicators for better clarity
   - Split combined indicator into separate "Recording" and "Motion Detection" badges
+- **Pagination Component**: Simplified pagination UI across the application
+  - Removed "Items per page" label for a cleaner, more compact design
+  - Shows page navigation on left, page size selector on right
   - Recording badge shows red pulsing "REC" when actively recording, yellow "PAUSED" when paused
   - Motion badge shows green "Motion" when movement detected, gray "Still" when no motion
   - Motion detection indicator only shown when motion detection is enabled
