@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **VNC Recording Settings**: Added "Pause Delay" slider in Settings > VNC Recording section
+  - Allows users to configure how long to wait before pausing recording when no motion is detected
+  - Range: 1-60 seconds (default: 10 seconds)
+
+### Fixed
+- **Monitoring Services**: Fixed services not responding to configuration changes
+  - ApplicationMonitorService and DiskMonitorService now check Enabled inside the loop
+  - Services respond to enable/disable without requiring restart
+
+### Changed
+- **Code Quality**: Refactored services for better maintainability
+  - Replaced bare catch blocks with specific exception handling
+  - Made all loggers required (non-nullable)
+  - Centralized magic numbers in WeaselConstants.cs
+  - Fixed Process disposal in enumeration loops
+
 ## [1.0.0-beta] - 2025-12-02
 
 ### Added

@@ -1470,6 +1470,7 @@ function VncRecordingSettingsPanel() {
     enableMotionDetection: false,
     motionDetectionThresholdPercent: 10,
     motionDetectionBlockSize: 32,
+    motionDetectionPauseDelaySeconds: 10,
     recordingFps: 5,
     useProfileSubfolders: true
   });
@@ -1687,6 +1688,28 @@ function VncRecordingSettingsPanel() {
                   <option value={32}>32x32 (Balanced)</option>
                   <option value={64}>64x64 (Low precision, lower CPU)</option>
                 </select>
+              </div>
+
+              <div>
+                <label htmlFor="pause-delay" className="block text-sm text-slate-400 mb-1">
+                  Pause Delay: {form.motionDetectionPauseDelaySeconds} seconds
+                </label>
+                <input
+                  type="range"
+                  id="pause-delay"
+                  min={1}
+                  max={60}
+                  className="w-full"
+                  value={form.motionDetectionPauseDelaySeconds}
+                  onChange={(e) => {
+                    const updated = { ...form, motionDetectionPauseDelaySeconds: parseInt(e.target.value) };
+                    setForm(updated);
+                    debouncedSaveRecording(updated, false);
+                  }}
+                />
+                <p className="text-xs text-slate-500 mt-1">
+                  Time to wait before pausing recording when no motion is detected
+                </p>
               </div>
             </div>
           )}
