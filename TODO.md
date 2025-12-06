@@ -4,20 +4,13 @@ Track ongoing work and technical debt for the Weasel project.
 
 ## In Progress
 
-(None currently)
+- [ ] **Slow shutdown process** - Application takes too long to shut down
+  - Investigation task: `.claude/tasks/slow-shutdown-investigation.md`
+  - Following workflow template: Phase 1 (Investigation) in progress
 
 ## Technical Debt
 
 ### High Priority
-
-- [ ] **Duplicated monitoring code** - StartAsync/StopAsync identical in DiskMonitorService and ApplicationMonitorService
-  - Consider creating `BackgroundMonitoringServiceBase` class
-  - See `.claude/templates/02-implementation.md` for base class pattern
-
-- [ ] **Slow shutdown process** - Application takes too long to shut down
-  - Investigate which services are blocking shutdown
-  - Implement graceful cancellation with appropriate timeouts
-  - Consider adding shutdown progress indication
 
 - [ ] **Password change requires restart** - New login password doesn't work until server restart
   - Need to implement hot-reload for security settings OR
@@ -28,31 +21,6 @@ Track ongoing work and technical debt for the Weasel project.
 
 ### Medium Priority
 
-- [ ] **Background services lack activity logging** - LogPanel shows empty for services with no events
-  - ApplicationMonitorService only logs when apps need restart or errors occur
-  - DiskMonitorService only logs when thresholds are breached
-  - Services should log periodic "heartbeat" or status messages when enabled
-  - Example: "ApplicationMonitor: Checked 3 applications, all running" every N minutes
-  - This helps users confirm the service is actively monitoring
-  - Add logging requirements to implementation workflow template
-
-- [ ] **Inconsistent API responses** - Different error formats across endpoints in Program.cs
-  - Should use consistent `ApiError` record format
-  - See `.claude/templates/02-implementation.md` for API response standards
-
-- [ ] **Theme system not utilized** - Started theme work but not fully implemented
-  - Implement proper CSS variables/theming system
-  - Create default themes: "Weasel" (current), "Dark", "Light"
-  - Make all colors and styling configurable via theme
-  - Add theme selector in Settings
-  - Add theming requirements to implementation workflow template
-
-- [ ] **i18n system neglected** - Internationalization started but incomplete
-  - Audit all hardcoded strings in UI
-  - Complete translation files for supported languages
-  - Add i18n requirements to implementation workflow template
-  - Ensure all new UI text uses translation system
-
 ### Low Priority
 
 - [ ] **Bare catches in logging/cleanup** - Some remain in FileLoggerProvider.cs and Program.cs
@@ -60,6 +28,11 @@ Track ongoing work and technical debt for the Weasel project.
 
 ## Completed
 
+- [x] ~~Duplicated monitoring code~~ - Created `BackgroundMonitoringServiceBase<T>` class, refactored DiskMonitorService and ApplicationMonitorService to inherit from it
+- [x] ~~Background services lack activity logging~~ - Added periodic heartbeat logging to DiskMonitorService and ApplicationMonitorService (every 5 minutes when enabled)
+- [x] ~~Inconsistent API responses~~ - Created `ApiError` record and `ResultExtensions` helper methods, updated all endpoints to use standardized format
+- [x] ~~Theme system not utilized~~ - Implemented complete theme system with Weasel, Dark, and Light themes, added theme selector to Settings, theme preference persists to backend
+- [x] ~~i18n system neglected~~ - Fixed fallback mechanism to use English for missing keys, English is now source of truth, other languages can be completed incrementally
 - [x] ~~Bare catch blocks in services~~ - Fixed with specific exception types
 - [x] ~~Nullable loggers~~ - All services now require ILogger<T>
 - [x] ~~Magic numbers~~ - Centralized in WeaselConstants.cs

@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.DependencyInjection;
 using WeaselHost.Core.Abstractions;
 using WeaselHost.Core.Configuration;
+using ShutdownStopwatch = System.Diagnostics.Stopwatch;
 
 namespace WeaselHost;
 
@@ -541,18 +542,22 @@ public sealed class TrayApplicationContext : ApplicationContext
         }
         _isShuttingDown = true;
 
+        var totalStopwatch = ShutdownStopwatch.StartNew();
         _logger.LogInformation("Shutting down Weasel...");
         _notifyIcon.Visible = false;
 
         try
         {
             // Stop the web server with a short timeout - don't wait too long
+            var webServerStopwatch = ShutdownStopwatch.StartNew();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             await _webServerManager.StopAsync(cts.Token);
+            webServerStopwatch.Stop();
+            _logger.LogInformation("SHUTDOWN TIMING: WebServerManager.StopAsync completed in {ElapsedMs}ms", webServerStopwatch.ElapsedMilliseconds);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning("Web server stop timed out, forcing shutdown...");
+            _logger.LogWarning("SHUTDOWN TIMING: Web server stop timed out after 5000ms, forcing shutdown...");
         }
         catch (Exception ex)
         {
@@ -562,7 +567,10 @@ public sealed class TrayApplicationContext : ApplicationContext
         {
             try
             {
+                var disposeStopwatch = ShutdownStopwatch.StartNew();
                 await _webServerManager.DisposeAsync();
+                disposeStopwatch.Stop();
+                _logger.LogInformation("SHUTDOWN TIMING: WebServerManager.DisposeAsync completed in {ElapsedMs}ms", disposeStopwatch.ElapsedMilliseconds);
             }
             catch (Exception ex)
             {
@@ -572,12 +580,15 @@ public sealed class TrayApplicationContext : ApplicationContext
             // Stop the host with a very short timeout - we're exiting anyway
             try
             {
+                var hostStopwatch = ShutdownStopwatch.StartNew();
                 using var hostCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
                 await _host.StopAsync(hostCts.Token);
+                hostStopwatch.Stop();
+                _logger.LogInformation("SHUTDOWN TIMING: IHost.StopAsync completed in {ElapsedMs}ms", hostStopwatch.ElapsedMilliseconds);
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning("Host stop timed out during shutdown - will force exit");
+                _logger.LogWarning("SHUTDOWN TIMING: Host stop timed out after 2000ms - will force exit");
             }
             catch (Exception ex)
             {
@@ -585,7 +596,8 @@ public sealed class TrayApplicationContext : ApplicationContext
             }
 
             _notifyIcon.Dispose();
-            _logger.LogInformation("Weasel shutdown complete.");
+            totalStopwatch.Stop();
+            _logger.LogInformation("SHUTDOWN TIMING: Total shutdown completed in {ElapsedMs}ms", totalStopwatch.ElapsedMilliseconds);
         }
     }
 

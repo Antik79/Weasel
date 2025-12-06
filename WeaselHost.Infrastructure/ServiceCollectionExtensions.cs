@@ -29,12 +29,14 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IVncService, VncService>();
         services.AddSingleton<IVncRecordingService, VncRecordingService>();
         services.AddSingleton<ITerminalService, TerminalService>();
+        services.AddSingleton<ISystemMetricsService, SystemMetricsService>();
 
         // Only register hosted services in the tray application to prevent duplicate execution
         if (registerHostedServices)
         {
             services.AddHostedService(provider => (DiskMonitorService)provider.GetRequiredService<IDiskMonitorService>());
             services.AddHostedService<ApplicationMonitorService>();
+            services.AddHostedService(provider => (SystemMetricsService)provider.GetRequiredService<ISystemMetricsService>());
         }
 
         return services;

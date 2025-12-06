@@ -142,6 +142,55 @@ Record VNC sessions to WebM video files:
 
 Recordings are automatically saved with timestamps and can be played back in any WebM-compatible video player.
 
+### System Overview
+
+The System Overview dashboard provides real-time monitoring of your system and all Weasel services in one place.
+
+#### Real-Time Metrics
+
+Navigate to **System → Overview** to see:
+
+- **CPU Usage Chart**: Real-time CPU utilization with 5-minute rolling history
+- **Memory Usage Chart**: Real-time memory utilization with 5-minute rolling history
+- **System Information**: Hostname, IP address, current CPU and memory percentages
+
+The charts automatically update every 5 seconds and maintain a rolling buffer of the last 60 data points (5 minutes of history).
+
+#### Weasel Services Status
+
+The dashboard displays status cards for all Weasel services:
+
+- **VNC Server**: Shows running status, port, active connections, active recordings, and auto-start setting
+- **Storage Monitor**: Shows enabled status, monitored drives/folders count, active alerts, and last check time
+- **Application Monitor**: Shows enabled status, total/enabled/running application counts, and recent restarts
+- **Screenshot Service**: Shows interval capture status, interval setting, and recent/total screenshot counts
+- **Terminal Sessions**: Shows active session count
+- **VNC Recordings**: Shows total/recent recordings count and storage usage
+
+Each service card includes:
+- Status indicator with color-coded badge (Running/Enabled/Disabled/Warning)
+- Key metrics and configuration values
+- Quick navigation link to the service's configuration page in Tools
+
+Click on any service card or use the external link icon to navigate to the corresponding Tools section for detailed configuration.
+
+#### Storage Overview
+
+The Storage section displays all available drives with:
+- Visual progress bars showing usage percentage
+- Color-coded indicators (green/yellow/red based on usage thresholds)
+- Used and total capacity for each drive
+
+#### Network Information
+
+The Network section shows:
+- Active network adapter selection
+- Adapter status, MAC address, and speed
+- IP addresses assigned to the adapter
+- Real-time throughput statistics (bytes/packets sent and received)
+
+Select a network adapter from the dropdown to view detailed information and statistics.
+
 ### Logging
 
 Weasel provides structured logging with component-specific log files.

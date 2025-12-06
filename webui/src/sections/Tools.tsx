@@ -54,7 +54,8 @@ const buildRawUrl = (path: string) => {
 
 export default function Tools() {
   const { t } = useTranslation();
-  const theme = useTheme();
+  const themeHook = useTheme();
+  const theme = themeHook.theme || defaultTheme; // Ensure theme is always defined
   const [tab, setTab] = useState<ToolsTab>("screenshots");
   const [preview, setPreview] = useState<{ path: string; url: string } | null>(null);
   const [isSavingCapture, setIsSavingCapture] = useState(false);
@@ -876,7 +877,7 @@ export default function Tools() {
   );
 }
 
-function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
+function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme | undefined }) {
   const [isSaving, setIsSaving] = useState(false);
   const [selectedDrive, setSelectedDrive] = useState<string | null>(null);
   const [folderPickerIndex, setFolderPickerIndex] = useState<number | null>(null);
@@ -1058,15 +1059,15 @@ function DiskMonitoringTab({ t, theme }: { t: TranslateFn; theme: Theme }) {
                 <div className="space-y-2">
                   <div
                     className="h-3 rounded-full overflow-hidden"
-                    style={{ backgroundColor: theme.colors.border.muted }}
+                    style={{ backgroundColor: (theme || defaultTheme).colors.border.muted }}
                   >
                     <div className="h-full flex">
                       <div
-                        style={{ width: `${usedPercent}%`, backgroundColor: theme.colors.accent.primary }}
+                        style={{ width: `${usedPercent}%`, backgroundColor: (theme || defaultTheme).colors.accent.primary }}
                         title={t("tools.disk.usedTooltip", { value: formatBytes(usedBytes) })}
                       />
                       <div
-                        style={{ width: `${freePercent}%`, backgroundColor: theme.colors.text.muted }}
+                        style={{ width: `${freePercent}%`, backgroundColor: (theme || defaultTheme).colors.text.muted }}
                         title={t("tools.disk.freeTooltip", { value: formatBytes(drive.freeBytes) })}
                       />
                     </div>
@@ -1574,6 +1575,8 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
                             <label className="block text-sm text-slate-400 mb-1">{t("tools.app.namePlaceholder")}</label>
                             <input
                               type="text"
+                              id={`app-name-${app.id}`}
+                              name={`app-name-${app.id}`}
                               className="input-text w-full"
                               placeholder={t("tools.app.namePlaceholder")}
                               value={app.name}
@@ -1586,6 +1589,8 @@ function ApplicationMonitorTab({ t }: { t: TranslateFn }) {
                             <div className="flex gap-2">
                               <input
                                 type="text"
+                                id={`app-executable-${app.id}`}
+                                name={`app-executable-${app.id}`}
                                 className="input-text flex-1"
                                 placeholder={t("tools.app.executablePlaceholder")}
                                 value={formatPath(app.executablePath || "")}

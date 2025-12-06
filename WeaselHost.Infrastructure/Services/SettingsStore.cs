@@ -445,6 +445,7 @@ public sealed class SettingsStore : ISettingsStore
             var uiPrefsNode = weaselHostNode["UiPreferences"] as JsonObject ?? new JsonObject();
             uiPrefsNode["LogPanelExpanded"] = JsonNode.Parse(JsonSerializer.Serialize(options.LogPanelExpanded)) ?? new JsonObject();
             uiPrefsNode["Language"] = options.Language;
+            uiPrefsNode["Theme"] = options.Theme ?? "weasel";
             uiPrefsNode["ScreenshotsFolderPageSize"] = options.ScreenshotsFolderPageSize;
             uiPrefsNode["FilesFolderPageSize"] = options.FilesFolderPageSize;
             uiPrefsNode["FilesFilesPageSize"] = options.FilesFilesPageSize;

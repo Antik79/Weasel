@@ -9,61 +9,25 @@ using WeaselHost.Core.Configuration;
 
 namespace WeaselHost.Infrastructure.Services;
 
-public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
+public sealed class DiskMonitorService : BackgroundMonitoringServiceBase<DiskMonitorService>, IDiskMonitorService
 {
-    private readonly IOptionsMonitor<WeaselHostOptions> _optionsMonitor;
-    private readonly ILogger<DiskMonitorService> _logger;
     private readonly IEmailService _emailService;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastAlertSent = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastDriveCheck = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastFolderCheck = new();
-    private CancellationTokenSource? _cancellationTokenSource;
-    private Task? _monitoringTask;
 
     public DiskMonitorService(
         IOptionsMonitor<WeaselHostOptions> optionsMonitor,
         ILogger<DiskMonitorService> logger,
         IEmailService emailService)
+        : base(optionsMonitor, logger)
     {
-        _optionsMonitor = optionsMonitor;
-        _logger = logger;
         _emailService = emailService;
-    }
-
-    public Task StartAsync(CancellationToken cancellationToken = default)
-    {
-        _cancellationTokenSource = new CancellationTokenSource();
-        _monitoringTask = Task.Run(() => MonitorLoopAsync(_cancellationTokenSource.Token), cancellationToken);
-        _logger.LogInformation("Disk monitoring service started");
-        return Task.CompletedTask;
-    }
-
-    public async Task StopAsync(CancellationToken cancellationToken = default)
-    {
-        _cancellationTokenSource?.Cancel();
-
-        if (_monitoringTask != null)
-        {
-            try
-            {
-                using var timeoutCts = new CancellationTokenSource(WeaselConstants.Timeouts.ServiceStopGracePeriod);
-                await _monitoringTask.WaitAsync(timeoutCts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when cancelled or timeout
-                _logger.LogWarning("Disk monitoring task did not stop within timeout - abandoning");
-            }
-        }
-
-        _cancellationTokenSource?.Dispose();
-        _cancellationTokenSource = null;
-        _logger.LogInformation("Disk monitoring stopped");
     }
 
     public Task<DiskMonitoringStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
-        var options = _optionsMonitor.CurrentValue.DiskMonitoring;
+        var options = OptionsMonitor.CurrentValue.DiskMonitoring;
         var driveStatuses = new List<DriveAlertStatus>();
 
         if (options.Enabled)
@@ -110,7 +74,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
         }
 
         return Task.FromResult(new DiskMonitoringStatus(
-            _monitoringTask?.IsCompleted == false,
+            MonitoringTask?.IsCompleted == false,
             DateTimeOffset.UtcNow,
             driveStatuses));
     }
@@ -118,18 +82,45 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
     public Task UpdateConfigurationAsync(DiskMonitoringOptions options, CancellationToken cancellationToken = default)
     {
         // Configuration is updated via IOptionsMonitor, so the monitoring loop will pick up changes automatically
-        _logger.LogInformation("Disk monitoring configuration updated");
+        Logger.LogInformation("Disk monitoring configuration updated");
         return Task.CompletedTask;
     }
 
-    private async Task MonitorLoopAsync(CancellationToken cancellationToken)
+    protected override async Task MonitorLoopAsync(CancellationToken cancellationToken)
     {
+        var lastStatusLog = DateTimeOffset.MinValue;
+
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                await CheckDisksAsync(cancellationToken);
-                await CheckFoldersAsync(cancellationToken);
+                var options = OptionsMonitor.CurrentValue.DiskMonitoring;
+
+                if (options.Enabled)
+                {
+                    await CheckDisksAsync(cancellationToken);
+                    await CheckFoldersAsync(cancellationToken);
+
+                    // Log periodic status (every 5 minutes when enabled)
+                    if (DateTimeOffset.UtcNow - lastStatusLog > TimeSpan.FromMinutes(5))
+                    {
+                        var driveCount = options.MonitoredDrives.Count(d => d.Enabled);
+                        var folderCount = options.FolderMonitors.Count(f => f.Enabled);
+                        Logger.LogInformation("DiskMonitor: Checked {DriveCount} drives and {FolderCount} folders, all OK", 
+                            driveCount, folderCount);
+                        lastStatusLog = DateTimeOffset.UtcNow;
+                    }
+                }
+                else
+                {
+                    // Log when disabled (less frequently - every 10 minutes)
+                    if (DateTimeOffset.UtcNow - lastStatusLog > TimeSpan.FromMinutes(10))
+                    {
+                        Logger.LogInformation("DiskMonitor: Service is disabled");
+                        lastStatusLog = DateTimeOffset.UtcNow;
+                    }
+                }
+
                 await Task.Delay(WeaselConstants.Intervals.DiskMonitorLoop, cancellationToken);
             }
             catch (OperationCanceledException)
@@ -138,7 +129,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in disk monitoring loop");
+                Logger.LogError(ex, "Error in disk monitoring loop");
                 await Task.Delay(WeaselConstants.Intervals.ErrorRetryDelay, cancellationToken);
             }
         }
@@ -146,7 +137,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
 
     private async Task CheckDisksAsync(CancellationToken cancellationToken)
     {
-        var options = _optionsMonitor.CurrentValue.DiskMonitoring;
+        var options = OptionsMonitor.CurrentValue.DiskMonitoring;
         if (!options.Enabled || options.MonitoredDrives.Count == 0)
         {
             return;
@@ -217,7 +208,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
 
     private async Task CheckFoldersAsync(CancellationToken cancellationToken)
     {
-        var options = _optionsMonitor.CurrentValue.DiskMonitoring;
+        var options = OptionsMonitor.CurrentValue.DiskMonitoring;
         if (!options.Enabled || options.FolderMonitors.Count == 0)
         {
             return;
@@ -246,11 +237,11 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             {
                 if (!Directory.Exists(folderMonitor.Path))
                 {
-                    _logger.LogWarning("Folder monitor path does not exist: {Path}", folderMonitor.Path);
+                    Logger.LogWarning("Folder monitor path does not exist: {Path}", folderMonitor.Path);
                     continue;
                 }
 
-                var folderSize = CalculateFolderSize(folderMonitor.Path);
+                var folderSize = CalculateFolderSize(folderMonitor.Path, cancellationToken);
                 
                 // Check threshold based on direction (Over or Under)
                 var thresholdDirection = folderMonitor.ThresholdDirection ?? "Over";
@@ -272,7 +263,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking folder size for {Path}", folderMonitor.Path);
+                Logger.LogError(ex, "Error checking folder size for {Path}", folderMonitor.Path);
             }
         }
 
@@ -286,14 +277,21 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
         }
     }
 
-    private static long CalculateFolderSize(string path)
+    private static long CalculateFolderSize(string path, CancellationToken cancellationToken = default)
     {
         long size = 0;
+        int fileCount = 0;
         try
         {
             var directoryInfo = new DirectoryInfo(path);
-            foreach (var file in directoryInfo.GetFiles("*", SearchOption.AllDirectories))
+            foreach (var file in directoryInfo.EnumerateFiles("*", SearchOption.AllDirectories))
             {
+                // Check cancellation every 100 files for responsiveness during shutdown
+                if (++fileCount % 100 == 0)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
+                
                 try
                 {
                     size += file.Length;
@@ -346,11 +344,11 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
                 new List<string>(recipients),
                 cancellationToken);
 
-            _logger.LogInformation("Sent disk space alerts to {Count} recipients", recipients.Count);
+            Logger.LogInformation("Sent disk space alerts to {Count} recipients", recipients.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send disk space alerts");
+            Logger.LogError(ex, "Failed to send disk space alerts");
         }
     }
 
@@ -413,11 +411,11 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
                 new List<string>(recipients),
                 cancellationToken);
 
-            _logger.LogInformation("Sent folder size alerts to {Count} recipients", recipients.Count);
+            Logger.LogInformation("Sent folder size alerts to {Count} recipients", recipients.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send folder size alerts");
+            Logger.LogError(ex, "Failed to send folder size alerts");
         }
     }
 
@@ -428,7 +426,7 @@ public sealed class DiskMonitorService : IDiskMonitorService, IHostedService
             return options.NotificationRecipients;
         }
 
-        var fallback = _optionsMonitor.CurrentValue.Smtp.FromAddress;
+        var fallback = OptionsMonitor.CurrentValue.Smtp.FromAddress;
         if (!string.IsNullOrWhiteSpace(fallback))
         {
             return new[] { fallback };

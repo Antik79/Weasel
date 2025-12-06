@@ -16,6 +16,7 @@ using WeaselHost.Core.Configuration;
 using WeaselHost.Core.Models;
 using WeaselHost.Infrastructure;
 using WeaselHost.Infrastructure.Services;
+using WeaselHost.Web.Extensions;
 using WeaselHost.Web.Logging;
 
 namespace WeaselHost.Web;
@@ -83,16 +84,19 @@ public static class Program
         
         // Configure static files
         var wwwrootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+        PhysicalFileProvider? wwwrootFileProvider = null;
+        
         if (Directory.Exists(wwwrootPath))
         {
+            wwwrootFileProvider = new PhysicalFileProvider(wwwrootPath);
             app.UseDefaultFiles(new DefaultFilesOptions
             {
-                FileProvider = new PhysicalFileProvider(wwwrootPath),
+                FileProvider = wwwrootFileProvider,
                 RequestPath = ""
             });
             app.UseStaticFiles(new StaticFileOptions
             {
-                FileProvider = new PhysicalFileProvider(wwwrootPath),
+                FileProvider = wwwrootFileProvider,
                 RequestPath = ""
             });
         }
@@ -181,6 +185,14 @@ public static class Program
             await sys.RestartAsAdministratorAsync(ct);
             return Results.Ok();
         });
+        system.MapPost("/admin/exit", (IHostApplicationLifetime lifetime, ILoggerFactory loggerFactory) =>
+        {
+            var logger = loggerFactory.CreateLogger("WeaselHost.Web.Program");
+            logger.LogInformation("Graceful shutdown requested via API");
+            // Request graceful shutdown
+            lifetime.StopApplication();
+            return Results.Ok(new { message = "Shutdown initiated" });
+        });
         system.MapGet("/network/adapters", async (ISystemInfoService sys, CancellationToken ct) =>
         {
             var adapters = await sys.GetNetworkAdaptersAsync(ct);
@@ -191,7 +203,7 @@ public static class Program
             var stats = await sys.GetNetworkAdapterStatsAsync(adapterId, ct);
             if (stats == null)
             {
-                return Results.NotFound();
+                return ResultExtensions.NotFound("Network adapter not found");
             }
             return Results.Ok(stats);
         });
@@ -204,6 +216,21 @@ public static class Program
                 events.Add(entry);
             }
             return Results.Ok(events);
+        });
+        system.MapGet("/metrics", async (ISystemMetricsService metrics, CancellationToken ct) =>
+        {
+            var result = await metrics.GetMetricsAsync(ct);
+            return Results.Ok(result);
+        });
+        system.MapGet("/weasel-status", async (ISystemMetricsService metrics, CancellationToken ct) =>
+        {
+            var result = await metrics.GetWeaselServicesStatusAsync(ct);
+            return Results.Ok(result);
+        });
+        system.MapGet("/terminal/sessions", (ITerminalService terminal) =>
+        {
+            var sessions = terminal.GetActiveSessions();
+            return Results.Ok(sessions);
         });
 
         var power = api.MapGroup("/power");
@@ -255,7 +282,10 @@ public static class Program
             var form = await request.ReadFormAsync(ct);
             var file = form.Files["file"];
             var path = form["path"].ToString();
-            if (file == null || string.IsNullOrEmpty(path)) return Results.BadRequest();
+            if (file == null || string.IsNullOrEmpty(path))
+            {
+                return ResultExtensions.BadRequest("File and path are required");
+            }
             using var stream = file.OpenReadStream();
             await fss.SaveFileAsync(Path.Combine(path, file.FileName), stream, true, ct);
             return Results.Ok();
@@ -364,7 +394,18 @@ public static class Program
         MapTerminalEndpoints(api.MapGroup("/terminal"));
 
         // SPA fallback - serve index.html for all non-API routes
-        app.MapFallbackToFile("index.html");
+        if (wwwrootFileProvider != null)
+        {
+            app.MapFallbackToFile("index.html", new StaticFileOptions
+            {
+                FileProvider = wwwrootFileProvider,
+                RequestPath = ""
+            });
+        }
+        else
+        {
+            app.MapFallbackToFile("index.html");
+        }
 
         return app;
     }
@@ -440,7 +481,7 @@ public static class Program
         {
             if (string.IsNullOrWhiteSpace(identifier))
             {
-                return Results.BadRequest(new { error = "Package identifier or moniker is required" });
+                return ResultExtensions.BadRequest("Package identifier or moniker is required");
             }
 
             var result = await packageService.ShowAsync(identifier, cancellationToken);
@@ -451,7 +492,7 @@ public static class Program
         {
             if (string.IsNullOrWhiteSpace(query))
             {
-                return Results.BadRequest(new { error = "Search query is required" });
+                return ResultExtensions.BadRequest("Search query is required");
             }
             
             // Create a cancellation token with a longer timeout for search operations (90 seconds)
@@ -465,7 +506,7 @@ public static class Program
             }
             catch (OperationCanceledException)
             {
-                return Results.StatusCode(408); // Request Timeout
+                return ResultExtensions.RequestTimeout("Search operation timed out");
             }
         });
     }
@@ -483,7 +524,7 @@ public static class Program
             var bundle = await bundleService.GetBundleAsync(bundleId, cancellationToken);
             if (bundle == null)
             {
-                return Results.NotFound();
+                return ResultExtensions.NotFound("Bundle not found");
             }
             return Results.Ok(bundle);
         });
@@ -508,7 +549,7 @@ public static class Program
             }
             catch (KeyNotFoundException)
             {
-                return Results.NotFound();
+                return ResultExtensions.NotFound("Bundle not found");
             }
         });
 
@@ -527,7 +568,7 @@ public static class Program
             }
             catch (KeyNotFoundException)
             {
-                return Results.NotFound();
+                return ResultExtensions.NotFound("Bundle not found");
             }
         });
     }
@@ -550,7 +591,7 @@ public static class Program
             {
                 var logger = loggerFactory.CreateLogger("CaptureSettings");
                 logger.LogError(ex, "Failed to save capture settings");
-                return Results.Problem($"Failed to save settings: {ex.Message}", statusCode: 500);
+                return ResultExtensions.InternalServerError($"Failed to save settings: {ex.Message}");
             }
         });
 
@@ -585,7 +626,7 @@ public static class Program
             {
                 if (string.IsNullOrWhiteSpace(request.Recipient))
                 {
-                    return Results.BadRequest(new { error = "Recipient email address is required." });
+                    return ResultExtensions.BadRequest("Recipient email address is required");
                 }
 
                 await emailService.SendTestEmailAsync(request.Recipient, cancellationToken);
@@ -593,23 +634,19 @@ public static class Program
             }
             catch (ArgumentException ex)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                return ResultExtensions.BadRequest(ex.Message);
             }
             catch (InvalidOperationException ex)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                return ResultExtensions.BadRequest(ex.Message);
             }
             catch (System.Net.Mail.SmtpException ex)
             {
-                return Results.BadRequest(new { error = $"SMTP error: {ex.Message}" });
+                return ResultExtensions.BadRequest($"SMTP error: {ex.Message}");
             }
             catch (Exception ex)
             {
-                return Results.Problem(
-                    detail: ex.Message,
-                    statusCode: 500,
-                    title: "Failed to send test email"
-                );
+                return ResultExtensions.InternalServerError(ex.Message, "FailedToSendEmail");
             }
         });
 
@@ -699,7 +736,7 @@ public static class Program
                 }
                 else
                 {
-                    return Results.BadRequest("Invalid subfolder path.");
+                    return ResultExtensions.BadRequest("Invalid subfolder path");
                 }
             }
             
@@ -771,20 +808,20 @@ public static class Program
                 }
                 else
                 {
-                    return Results.BadRequest("Invalid subfolder path.");
+                    return ResultExtensions.BadRequest("Invalid subfolder path");
                 }
             }
             
             var safeName = Path.GetFileName(fileName);
             if (string.IsNullOrWhiteSpace(safeName))
             {
-                return Results.BadRequest("Invalid file name.");
+                return ResultExtensions.BadRequest("Invalid file name");
             }
 
             var path = Path.Combine(folder, safeName);
             if (!File.Exists(path))
             {
-                return Results.NotFound();
+                return ResultExtensions.NotFound("Log file not found");
             }
 
             var stream = File.OpenRead(path);
@@ -815,7 +852,7 @@ public static class Program
             {
                 var logger = loggerFactory.CreateLogger("DiskMonitoringConfig");
                 logger.LogError(ex, "Failed to save disk monitoring configuration");
-                return Results.Problem($"Failed to save configuration: {ex.Message}", statusCode: 500);
+                return ResultExtensions.InternalServerError($"Failed to save configuration: {ex.Message}");
             }
         });
 
@@ -845,7 +882,7 @@ public static class Program
             {
                 var logger = loggerFactory.CreateLogger("ApplicationMonitorConfig");
                 logger.LogError(ex, "Failed to save application monitor configuration");
-                return Results.Problem($"Failed to save configuration: {ex.Message}", statusCode: 500);
+                return ResultExtensions.InternalServerError($"Failed to save configuration: {ex.Message}");
             }
         });
 
@@ -913,7 +950,7 @@ public static class Program
                 }
                 catch (InvalidOperationException ex)
                 {
-                    return Results.BadRequest(new { error = ex.Message });
+                    return ResultExtensions.BadRequest(ex.Message);
                 }
             }
             // If VNC is running and settings changed, restart it
@@ -931,7 +968,7 @@ public static class Program
                 }
                 catch (InvalidOperationException ex)
                 {
-                    return Results.BadRequest(new { error = ex.Message });
+                    return ResultExtensions.BadRequest(ex.Message);
                 }
             }
 
@@ -950,7 +987,7 @@ public static class Program
             var vnc = optionsMonitor.CurrentValue.Vnc;
             if (!vnc.Enabled)
             {
-                return Results.BadRequest(new { error = "VNC is not enabled. Please enable it in settings first." });
+                return ResultExtensions.BadRequest("VNC is not enabled. Please enable it in settings first");
             }
 
             try
@@ -975,7 +1012,7 @@ public static class Program
         {
             if (!context.WebSockets.IsWebSocketRequest)
             {
-                return Results.BadRequest("WebSocket request required");
+                return ResultExtensions.BadRequest("WebSocket request required");
             }
 
             var logger = loggerFactory.CreateLogger("VncWebSocket");
@@ -1000,7 +1037,7 @@ public static class Program
                 if (!status.IsRunning)
                 {
                     logger.LogWarning("VNC WebSocket connection attempted but internal server is not running");
-                    return Results.BadRequest("VNC server is not running");
+                    return ResultExtensions.BadRequest("VNC server is not running");
                 }
 
                 vncHost = "127.0.0.1";
@@ -1011,7 +1048,7 @@ public static class Program
                     if (requestedPort != vncPort)
                     {
                         logger.LogWarning("VNC WebSocket connection attempted with wrong port: {AttemptedPort}, expected {ExpectedPort}", requestedPort, vncPort);
-                        return Results.BadRequest("Invalid VNC port");
+                        return ResultExtensions.BadRequest("Invalid VNC port");
                     }
                 }
             }
@@ -1068,7 +1105,7 @@ public static class Program
         group.MapGet("/recordings/sessions/{sessionId}", async (string sessionId, IVncRecordingService recordingService, CancellationToken cancellationToken) =>
         {
             var session = await recordingService.GetSessionAsync(sessionId, cancellationToken);
-            return session != null ? Results.Ok(session) : Results.NotFound();
+            return session != null ? Results.Ok(session) : ResultExtensions.NotFound("Recording session not found");
         });
 
         group.MapPost("/recordings/start", async (StartRecordingRequest request, IVncRecordingService recordingService, CancellationToken cancellationToken) =>
@@ -1117,7 +1154,7 @@ public static class Program
 
             if (recording == null || !File.Exists(recording.FilePath))
             {
-                return Results.NotFound();
+                return ResultExtensions.NotFound("Recording not found");
             }
 
             var fileName = Path.GetFileName(recording.FilePath);
@@ -1132,7 +1169,7 @@ public static class Program
             var shellType = request.ShellType?.ToLowerInvariant() ?? "cmd";
             if (shellType != "cmd" && shellType != "powershell")
             {
-                return Results.BadRequest(new { error = "Invalid shell type. Must be 'cmd' or 'powershell'" });
+                return ResultExtensions.BadRequest("Invalid shell type. Must be 'cmd' or 'powershell'");
             }
 
             try
@@ -1142,7 +1179,7 @@ public static class Program
             }
             catch (Exception ex)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                return ResultExtensions.BadRequest(ex.Message);
             }
         });
 
@@ -1155,7 +1192,7 @@ public static class Program
             }
             catch (InvalidOperationException)
             {
-                return Results.NotFound(new { error = "Terminal session not found" });
+                return ResultExtensions.NotFound("Terminal session not found");
             }
         });
 
@@ -1168,7 +1205,7 @@ public static class Program
             }
             catch (Exception ex)
             {
-                return Results.BadRequest(new { error = ex.Message });
+                return ResultExtensions.BadRequest(ex.Message);
             }
         });
 
@@ -1176,7 +1213,7 @@ public static class Program
         {
             if (!context.WebSockets.IsWebSocketRequest)
             {
-                return Results.BadRequest("WebSocket request required");
+                return ResultExtensions.BadRequest("WebSocket request required");
             }
 
             var logger = loggerFactory.CreateLogger("TerminalWebSocket");
@@ -1185,14 +1222,14 @@ public static class Program
 
             if (string.IsNullOrEmpty(sessionId))
             {
-                return Results.BadRequest("Terminal session ID required");
+                return ResultExtensions.BadRequest("Terminal session ID required");
             }
 
             var isActive = await terminalService.IsTerminalActiveAsync(sessionId);
             if (!isActive)
             {
                 logger.LogWarning("Terminal WebSocket connection attempted for inactive session {SessionId}", sessionId);
-                return Results.BadRequest("Terminal session not found or inactive");
+                return ResultExtensions.BadRequest("Terminal session not found or inactive");
             }
 
             logger.LogInformation("Accepting terminal WebSocket connection for session {SessionId}", sessionId);

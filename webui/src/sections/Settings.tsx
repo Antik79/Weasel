@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import useSWR from "swr";
-import { FolderOpen, Lock, Save, Mail, Send, Settings as SettingsIcon, Monitor, Shield, Globe, FileText, Eye, Video } from "lucide-react";
+import { FolderOpen, Lock, Save, Mail, Send, Settings as SettingsIcon, Monitor, Shield, Globe, FileText, Eye, Video, Palette } from "lucide-react";
 import { api, getUiPreferences, saveUiPreferences, getFileExplorerSettings, saveFileExplorerSettings } from "../api/client";
 import { CaptureSettings, SmtpConfig, LoggingConfig, VncConfig, FileExplorerConfig, VncRecordingOptions } from "../types";
 import FolderPicker from "../components/FolderPicker";
 import ToggleBar from "../components/ToggleBar";
 import { useDebouncedSave } from "../hooks/useDebouncedSave";
 import { useTranslation } from "../i18n/i18n";
+import { useTheme } from "../theme/useTheme";
 import { formatPath, formatBytes } from "../utils/format";
 import { showToast } from "../App";
 import ConfirmDialog from "../components/ConfirmDialog";
@@ -21,6 +22,7 @@ type SettingsTab = "general" | "security" | "mail" | "logging" | "screenshots" |
 
 export default function Settings() {
   const { t, language, setLanguage } = useTranslation();
+  const { themeName, setTheme, availableThemes } = useTheme();
   const [activeTab, setActiveTab] = useState<SettingsTab>("general");
 
   // Hash routing support for subtabs
@@ -233,6 +235,21 @@ export default function Settings() {
                       <option value="de">Deutsch</option>
                       <option value="fr">Français</option>
                       <option value="nl">Nederlands</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-1">{t("settings.theme")}</label>
+                  <div className="flex items-center gap-2">
+                    <Palette size={16} className="text-slate-500" />
+                    <select
+                      className="input-text"
+                      value={themeName}
+                      onChange={(e) => setTheme(e.target.value as 'weasel' | 'dark' | 'light')}
+                    >
+                      <option value="weasel">Weasel</option>
+                      <option value="dark">Dark</option>
+                      <option value="light">Light</option>
                     </select>
                   </div>
                 </div>

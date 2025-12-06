@@ -4,34 +4,73 @@ This document outlines the design system and component usage guidelines for the 
 
 ## Overview
 
-The Weasel design system provides a consistent, modern interface for remote system administration. It uses a dark theme with slate colors and cyan accents.
+The Weasel design system provides a consistent, modern interface for remote system administration. It supports three themes: **Weasel** (default dark blue), **Dark** (pure dark), and **Light** (light theme). Users can switch themes in Settings > General.
+
+**IMPORTANT**: All colors must use CSS variables from the theme system. Never hardcode hex colors or use inline styles with colors.
+
+## Theme System
+
+The application uses a CSS variable-based theme system that dynamically applies colors to the document root. Themes are defined in `webui/src/theme/theme.ts` and applied via `useTheme()` hook.
+
+### Available Themes
+
+1. **Weasel** (default) - Dark blue theme with slate colors and cyan accents
+2. **Dark** - Pure dark theme with neutral grays and blue accents
+3. **Light** - Light theme with light backgrounds and dark text
+
+### Theme Implementation
+
+- Themes are applied via CSS variables set on `document.documentElement`
+- Theme preference is persisted to backend (`UiPreferences.Theme`)
+- Theme switching is instant and requires no page reload
+- All Tailwind classes automatically use theme CSS variables
+
+### Using Themes in Components
+
+```tsx
+// GOOD - uses Tailwind classes that map to theme variables
+<div className="bg-slate-900 text-slate-100">
+<div className="text-sky-400">
+
+// BAD - hardcoded colors
+<div style={{ backgroundColor: '#1e293b' }}>
+<div className="text-[#38bdf8]">
+```
 
 ## Color Palette
 
+All colors are defined as CSS variables that change based on the selected theme. The following variables are available:
+
 ### Background Colors
-- `--color-bg-primary`: Primary background (#030712)
-- `--color-bg-secondary`: Secondary background (#0f172a)
-- `--color-bg-tertiary`: Tertiary background (#1e293b)
-- `--color-bg-panel`: Panel background (rgba(15, 23, 42, 0.8))
-- `--color-bg-modal`: Modal background (#0f172a)
-- `--color-bg-submenu`: Submenu background (rgba(15, 23, 42, 0.5))
+- `--color-bg-primary`: Primary background
+- `--color-bg-secondary`: Secondary background
+- `--color-bg-tertiary`: Tertiary background
+- `--color-bg-panel`: Panel background
+- `--color-bg-modal`: Modal background
+- `--color-bg-submenu`: Submenu background
 
 ### Text Colors
-- `--color-text-primary`: Primary text (#ffffff)
-- `--color-text-secondary`: Secondary text (#e2e8f0)
-- `--color-text-tertiary`: Tertiary text (#cbd5e1)
-- `--color-text-muted`: Muted text (#94a3b8)
+- `--color-text-primary`: Primary text
+- `--color-text-secondary`: Secondary text
+- `--color-text-tertiary`: Tertiary text
+- `--color-text-muted`: Muted text
 
 ### Border Colors
-- `--color-border-default`: Default border (rgba(148, 163, 184, 0.3))
-- `--color-border-hover`: Hover border (rgba(148, 163, 184, 0.4))
-- `--color-border-active`: Active border (#38bdf8)
-- `--color-border-muted`: Muted border (rgba(148, 163, 184, 0.12))
+- `--color-border-default`: Default border
+- `--color-border-hover`: Hover border
+- `--color-border-active`: Active border
+- `--color-border-muted`: Muted border
 
 ### Accent Colors
-- `--color-accent-primary`: Primary accent (#38bdf8)
-- `--color-accent-hover`: Hover accent (#0ea5e9)
-- `--color-accent-active`: Active accent (#2563eb)
+- `--color-accent-primary`: Primary accent
+- `--color-accent-hover`: Hover accent
+- `--color-accent-active`: Active accent
+
+### State Colors
+- `--color-success`: Success state (green)
+- `--color-warning`: Warning state (amber/yellow)
+- `--color-error`: Error state (red)
+- `--color-info`: Info state (blue)
 
 ## Spacing
 
@@ -490,10 +529,12 @@ For sections that need to display hierarchical data (like Files and Logs), use a
 
 1. **Consistency**: Always use the provided components for navigation and panels
 2. **Spacing**: Use the spacing variables and Tailwind classes consistently
-3. **Colors**: Use CSS variables for colors, never hardcode hex values
-4. **Submenus**: All sections with multiple views should use `SubmenuNav`
-5. **Panels**: Use `SectionPanel` for grouped content sections
-6. **Layout**: Use `PageLayout` as the wrapper for page content
+3. **Colors**: Use CSS variables for colors via Tailwind classes, never hardcode hex values or use inline styles
+4. **Theme Support**: All components must work with all three themes (Weasel, Dark, Light)
+5. **Submenus**: All sections with multiple views should use `SubmenuNav`
+6. **Panels**: Use `SectionPanel` for grouped content sections
+7. **Layout**: Use `PageLayout` as the wrapper for page content
+8. **Testing**: Test components with all theme variants to ensure readability
 
 ## Migration Guide
 
@@ -504,4 +545,6 @@ When updating existing pages:
 3. Replace custom panel divs with `SectionPanel`
 4. Update spacing to use `space-y-3` between submenu and content
 5. Ensure main menu to submenu spacing is `space-y-4`
+6. Replace hardcoded colors with Tailwind classes that use theme variables
+7. Test with all three themes to ensure proper contrast and readability
 

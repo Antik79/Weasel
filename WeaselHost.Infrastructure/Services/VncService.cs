@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
@@ -72,8 +73,15 @@ public sealed class VncService : IVncService, IDisposable
             {
                 try
                 {
-                    var client = await _listener.AcceptTcpClientAsync();
+                    // Use cancellation token to allow immediate shutdown
+                    var client = await _listener.AcceptTcpClientAsync(cancellationToken);
                     _ = Task.Run(async () => await HandleClientAsync(client, cancellationToken), cancellationToken);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected when cancellation is requested
+                    _logger.LogInformation("VNC server accept loop cancelled");
+                    break;
                 }
                 catch (ObjectDisposedException)
                 {
@@ -168,30 +176,58 @@ public sealed class VncService : IVncService, IDisposable
         }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken = default)
+    public async Task StopAsync(CancellationToken cancellationToken = default)
     {
+        var stopwatch = Stopwatch.StartNew();
+        _logger.LogInformation("SHUTDOWN TIMING: VncService.StopAsync starting");
+        
+        Task? taskToWait = null;
+        
         lock (_lock)
         {
             if (!_isRunning)
             {
-                return Task.CompletedTask;
+                _logger.LogInformation("SHUTDOWN TIMING: VncService not running, nothing to stop");
+                return;
             }
 
             _logger.LogInformation("Stopping VNC server");
 
             _cancellationTokenSource?.Cancel();
+            _logger.LogInformation("SHUTDOWN TIMING: VncService cancellation requested at {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
+            
             _listener?.Stop();
+            _logger.LogInformation("SHUTDOWN TIMING: VncService listener stopped at {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
             
             foreach (var connection in _connections.ToList())
             {
                 connection.Dispose();
             }
             _connections.Clear();
+            _logger.LogInformation("SHUTDOWN TIMING: VncService connections disposed at {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
             
             _isRunning = false;
-
-            return _serverTask ?? Task.CompletedTask;
+            taskToWait = _serverTask;
         }
+
+        // Wait for server task outside the lock to avoid deadlock
+        if (taskToWait != null)
+        {
+            try
+            {
+                // Wait up to 2 seconds for server task to complete
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await taskToWait.WaitAsync(timeoutCts.Token);
+                _logger.LogInformation("SHUTDOWN TIMING: VncService server task completed at {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("SHUTDOWN TIMING: VncService server task did not complete within 2s timeout (waited {ElapsedMs}ms)", stopwatch.ElapsedMilliseconds);
+            }
+        }
+        
+        stopwatch.Stop();
+        _logger.LogInformation("SHUTDOWN TIMING: VncService.StopAsync completed in {ElapsedMs}ms", stopwatch.ElapsedMilliseconds);
     }
 
     public Task<VncStatus> GetStatusAsync(CancellationToken cancellationToken = default)

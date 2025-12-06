@@ -8,6 +8,7 @@ import Login, { getAuthToken, clearAuthToken } from "./components/Login";
 import { api, getSystemVersion } from "./api/client";
 import { SystemStatus } from "./types";
 import ToastContainer, { useToast } from "./components/Toast";
+import { useTheme } from "./theme/useTheme";
 // Import i18n directly to ensure it's in the main bundle (it uses React hooks)
 import "./i18n/i18n";
 
@@ -80,6 +81,9 @@ const tabConfig: Record<
 };
 
 export default function App() {
+  // Initialize theme (loads from backend and applies CSS variables)
+  useTheme();
+  
   // Check if we're on the VNC viewer page
   const isVncViewer = window.location.pathname === "/vnc-viewer" || window.location.pathname.endsWith("/vnc-viewer");
 

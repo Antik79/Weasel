@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Files Page - Add to Application Monitor**: Added context menu option to add executables to Application Monitor
+  - Right-click on executable files (.exe) in File Manager to add them to Application Monitor
+  - Automatically configures executable path and working directory
+  - Shows success/error toast notifications
+  - Added translation keys for all new messages
+- **Files Page - Log Panel**: Added File Operations Log panel to Files section
+  - Displays file operation logs at the bottom of Files page
+  - Consistent with log panels in other sections
+  - Supports tailing and auto-refresh
+- **LogPanel i18n Support**: Added internationalization to LogPanel component
+  - All log panel messages now use translation system
+  - Added translation keys for error states and empty states
+  - Consistent with project i18n standards
+- **Theme System**: Complete theme implementation with three themes
+  - Added theme selector in Settings > General section
+  - Three themes available: Weasel (default), Dark, and Light
+  - Theme preference persists to backend configuration
+  - All themes use CSS variables for consistent styling
+- **API Error Standardization**: Standardized API error response format
+  - Created `ApiError` record for consistent error structure
+  - Added `ResultExtensions` helper methods for all error responses
+  - All API endpoints now return consistent error format
+  - Frontend automatically handles standardized error messages
+- **Background Service Base Class**: Eliminated code duplication in monitoring services
+  - Created `BackgroundMonitoringServiceBase<T>` abstract class
+  - All monitoring services now inherit from base class
+  - Reduces boilerplate code by ~50% for new services
+- **Service Activity Logging**: Background services now show activity in LogPanel
+  - DiskMonitorService logs periodic status (every 5 minutes when enabled)
+  - ApplicationMonitorService logs periodic status (every 5 minutes when enabled)
+  - Services log when disabled (every 10 minutes)
+  - Users can now verify services are actively running
 - **VNC Recording Settings**: Added "Pause Delay" slider in Settings > VNC Recording section
   - Allows users to configure how long to wait before pausing recording when no motion is detected
   - Range: 1-60 seconds (default: 10 seconds)
@@ -20,8 +52,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Edit and Tail buttons only shown for editable text-based files
   - View button only shown for image files
   - Context menu respects file type capabilities
+- **API Exit Endpoint**: Added `/api/system/admin/exit` endpoint for graceful application shutdown
+  - Triggers proper shutdown sequence with all timing logs
+  - Useful for programmatic testing and automation
+- **System Overview Redesign**: Completely redesigned the System Overview dashboard
+  - Added real-time CPU and Memory charts with historical data (5-minute rolling buffer)
+  - Added Weasel Services status cards showing all service states at a glance:
+    - VNC Server: connection count, port, auto-start status
+    - Storage Monitor: monitored drives/folders, active alerts
+    - Application Monitor: app counts, running status, recent restarts
+    - Screenshot Service: interval settings, recent screenshots count
+    - Terminal Sessions: active session count
+    - VNC Recordings: total/recent recordings, storage usage
+  - Added System Information section with hostname, OS version, uptime, RAM usage
+  - Each service card has quick navigation to its dedicated page
+  - Service status indicators with color-coded badges (running/enabled/warning/disabled)
+  - New MetricChart component using Recharts for smooth chart rendering
+  - New ServiceStatusCard component for consistent service display
+  - Added new API endpoints: `/api/system/metrics` and `/api/system/weasel-status`
+  - Created SystemMetricsService background service for metrics collection
+  - Full i18n support with all new translation keys
 
 ### Changed
+- **System Overview Service Cards Styling**: Updated ServiceStatusCard component to use standard `.panel` class
+  - Service cards now match the visual style of Storage Monitor drive cards
+  - Consistent with project theme system using proper CSS variables
+  - Improved visual consistency across the application
+- **Frontend Development Documentation**: Added comprehensive frontend development guidelines to CLAUDE.md
+  - Documented i18n import patterns (correct path: `../i18n/i18n`)
+  - Documented hash routing pattern (no react-router-dom)
+  - Documented CSS styling patterns (use standard classes, correct variable names)
+  - Documented model property verification requirements
+  - Added frontend implementation checklist to workflow templates
+- **API Error Responses**: Standardized all API error responses to use `ApiError` format
+  - All endpoints now return consistent `{ message, code?, details? }` structure
+  - Breaking change: Error response format changed (no backward compatibility required)
+  - Frontend updated to handle new error format
+- **Background Service Architecture**: Refactored monitoring services to use base class
+  - DiskMonitorService and ApplicationMonitorService now inherit from `BackgroundMonitoringServiceBase<T>`
+  - Breaking change: Service lifecycle management now handled by base class
+  - Eliminated ~80 lines of duplicated code
+- **i18n Fallback Mechanism**: Improved translation fallback system
+  - Missing translation keys now automatically fall back to English
+  - English (`en.json`) is the source of truth for all translations
+  - Other languages (de, fr, nl) can be completed incrementally
 - **VNC Status Bar**: Redesigned recording indicators for better clarity
   - Split combined indicator into separate "Recording" and "Motion Detection" badges
 - **Pagination Component**: Simplified pagination UI across the application
@@ -32,6 +106,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Motion detection indicator only shown when motion detection is enabled
 
 ### Fixed
+- **Slow Shutdown**: Fixed application taking too long to shut down (high priority bug)
+  - Fixed VncService blocking on `AcceptTcpClientAsync()` during shutdown - now uses cancellation token
+  - Fixed WebServerManager timeout mismatch (internal 10s vs caller 5s) - reduced to 3s
+  - Fixed DiskMonitorService `CalculateFolderSize()` blocking on large directories - now checks cancellation every 100 files
+  - Added SHUTDOWN TIMING logs to all services for monitoring and debugging:
+    - TrayApplicationContext logs each shutdown phase
+    - WebServerManager logs app stop, lifetime task, and dispose times
+    - BackgroundMonitoringServiceBase logs cancellation and task completion times
+    - VncService logs each shutdown phase with detailed timing
+  - Expected improvement: Shutdown should complete in < 5 seconds (was 15+ seconds)
+- **VncService Lock Deadlock**: Fixed potential deadlock in VncService.StopAsync()
+  - Server task wait moved outside lock to prevent deadlock
+  - Added 2-second timeout for server task completion
+- **Storage Monitor Crash**: Fixed crash when opening Storage Monitor tab
+  - Resolved "Cannot read properties of undefined (reading 'border')" error
+  - Added proper theme fallback to ensure theme is always defined
+  - Storage Monitor now loads correctly without errors
+- **LogPanel Error Handling**: Improved error messages and empty states in log panels
+  - Added proper error handling for log file loading failures
+  - Better empty state messages explaining when logs will appear
+  - Distinguishes between "no log files" and "log file empty" states
+  - All log panel messages now use i18n translation system
+- **Form Field Accessibility**: Fixed accessibility warnings for form fields
+  - Added `id` and `name` attributes to search input in Files section
+  - Added `id` and `name` attributes to Application Monitor form fields
+  - Resolves browser console accessibility warnings
+- **Service Visibility**: Fixed background services appearing inactive in LogPanel
+  - Services now log periodic "heartbeat" status messages when enabled
+  - Users can verify services are actively monitoring
+  - Services log status even when disabled (less frequently)
+- **API Error Consistency**: Fixed inconsistent error response formats across endpoints
+  - All endpoints now use standardized `ApiError` format
+  - Frontend can handle errors consistently
 - **Monitoring Services**: Fixed services not responding to configuration changes
   - ApplicationMonitorService and DiskMonitorService now check Enabled inside the loop
   - Services respond to enable/disable without requiring restart
@@ -47,6 +154,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Made all loggers required (non-nullable)
   - Centralized magic numbers in WeaselConstants.cs
   - Fixed Process disposal in enumeration loops
+  - Eliminated code duplication with `BackgroundMonitoringServiceBase<T>`
+  - Standardized API error responses across all endpoints
 
 ## [1.0.0-beta] - 2025-12-02
 

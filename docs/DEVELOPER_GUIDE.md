@@ -71,7 +71,23 @@ Weasel/
 
 ## API Endpoints
 
-The API is defined in `WeaselHost.Web/Program.cs`. Key groups include:
+The API is defined in `WeaselHost.Web/Program.cs`. All endpoints use standardized error responses via `ResultExtensions` helpers.
+
+**Error Response Format:**
+All API errors use the `ApiError` record format:
+```csharp
+public record ApiError(string Message, string? Code = null, Dictionary<string, object>? Details = null);
+```
+
+Error responses are created using `ResultExtensions`:
+- `ResultExtensions.BadRequest(message)` - 400 Bad Request
+- `ResultExtensions.NotFound(message)` - 404 Not Found
+- `ResultExtensions.InternalServerError(message)` - 500 Internal Server Error
+- `ResultExtensions.Unauthorized(message)` - 401 Unauthorized
+- `ResultExtensions.Forbidden(message)` - 403 Forbidden
+- `ResultExtensions.RequestTimeout(message)` - 408 Request Timeout
+
+Key groups include:
 
 - `/api/fs`: File system operations (browse, read, write, upload, bulk actions).
 - `/api/system`: System information, event logs, screenshots, version.
@@ -90,7 +106,7 @@ The API is defined in `WeaselHost.Web/Program.cs`. Key groups include:
 ## Key Components
 
 ### Storage Monitor
-Implemented in `DiskMonitorService.cs`. It runs as a hosted service (`IHostedService`), periodically checking disk space and folder sizes based on `DiskMonitoringOptions`. It supports both "Over" and "Under" threshold directions for folder monitoring. It sends email alerts via SMTP if thresholds are breached.
+Implemented in `DiskMonitorService.cs`. It inherits from `BackgroundMonitoringServiceBase<DiskMonitorService>` and runs as a hosted service, periodically checking disk space and folder sizes based on `DiskMonitoringOptions`. It supports both "Over" and "Under" threshold directions for folder monitoring. It sends email alerts via SMTP if thresholds are breached. The service logs periodic status messages (every 5 minutes when enabled) to show activity in the LogPanel.
 
 ### Email Service
 Implemented in `EmailService.cs` using **MailKit** library. Supports both implicit SSL (port 465) and STARTTLS (port 587):
@@ -100,7 +116,7 @@ Implemented in `EmailService.cs` using **MailKit** library. Supports both implic
 - Automatic security option detection based on port number
 
 ### Application Monitor
-Implemented in `ApplicationMonitorService.cs`. It runs as a hosted service, periodically checking if monitored applications are running. If an application is not running, it automatically restarts it after a configured delay. It includes detailed logging with event log entries.
+Implemented in `ApplicationMonitorService.cs`. It inherits from `BackgroundMonitoringServiceBase<ApplicationMonitorService>` and runs as a hosted service, periodically checking if monitored applications are running. If an application is not running, it automatically restarts it after a configured delay. It includes detailed logging with event log entries and logs periodic status messages (every 5 minutes when enabled) to show activity in the LogPanel.
 
 ### VNC Server & Client
 Implemented in `VncService.cs`, `VncConnectionHandler.cs`, and `VncRecordingService.cs`. The VNC system includes both a server and web-based client:
@@ -138,6 +154,17 @@ Implemented in `TerminalService.cs`. Provides PowerShell and CMD terminal access
 - Automatic cleanup of terminated sessions
 - Support for both interactive commands and scripts
 
+### Background Monitoring Services
+All background monitoring services inherit from `BackgroundMonitoringServiceBase<T>` located in `WeaselHost.Infrastructure/Services/BackgroundMonitoringServiceBase.cs`. This base class:
+- Handles `StartAsync`/`StopAsync` lifecycle automatically
+- Eliminates code duplication across monitoring services
+- Ensures consistent lifecycle management
+- Provides protected `OptionsMonitor` and `Logger` properties
+
+Services that inherit from this base class:
+- `DiskMonitorService` - Storage monitoring
+- `ApplicationMonitorService` - Application monitoring
+
 ### Logging
 Implemented via `FileLoggerProvider.cs`. Provides structured logging with:
 - Component-specific log files in subfolders
@@ -146,12 +173,18 @@ Implemented via `FileLoggerProvider.cs`. Provides structured logging with:
 - Per-component enable/disable toggles
 - Per-component minimum log level configuration
 - Log files stored in `.\Logs\`
+- **Activity Logging**: Background monitoring services log periodic "heartbeat" status messages:
+  - Every 5 minutes when enabled (e.g., "DiskMonitor: Checked 3 drives and 2 folders, all OK")
+  - Every 10 minutes when disabled (e.g., "DiskMonitor: Service is disabled")
+  - Ensures LogPanel shows activity even when no errors occur
 - Comprehensive logging in all service implementations:
   - **FileSystemService**: All file operations (read, write, delete, copy, move, zip)
   - **PackageService**: Install/uninstall operations with success/failure tracking
   - **PackageBundleService**: All CRUD operations on bundles
   - **ScreenshotService**: Screenshot capture with destination path logging
   - **IntervalScreenshotService**: Timed screenshot capture to TimedFolder
+  - **DiskMonitorService**: Periodic status logs and threshold breach alerts
+  - **ApplicationMonitorService**: Periodic status logs and restart events
 
 ### Authentication
 Implemented via middleware in `Program.cs`. If `Security.RequireAuthentication` is true, requests must include the `X-Weasel-Token` header matching the configured password.
@@ -204,6 +237,25 @@ Key functions:
 - `canEditFile(filePath)`: Returns true for code/text files
 - `canTailFile(filePath)`: Returns true for code/text files
 - `getFileIcon(filePath)`: Returns icon component and color class
+
+### Theme System
+
+The application uses a CSS variable-based theme system located in `webui/src/theme/`:
+- **Three themes available**: Weasel (default), Dark, and Light
+- **Theme switching**: Users can select theme in Settings > General
+- **Theme persistence**: Theme preference saved to backend (`UiPreferences.Theme`)
+- **Implementation**: Themes defined in `theme.ts`, switching logic in `useTheme.ts`, CSS variables in `theme.css`
+- **Usage**: All UI components use Tailwind classes that map to theme CSS variables
+- **No hardcoded colors**: All colors must use theme variables
+
+### Internationalization (i18n)
+
+The application uses a translation system located in `webui/src/i18n/`:
+- **Source of truth**: `en.json` contains all English translations
+- **Other languages**: `de.json`, `fr.json`, `nl.json` (can be incomplete)
+- **Fallback mechanism**: Missing keys automatically fall back to English
+- **Usage**: All user-facing text must use `t()` function from `useTranslation()` hook
+- **Translation keys**: Follow conventions (`common.*`, `settings.*`, `tools.*`, etc.)
 
 ### Layout Patterns
 

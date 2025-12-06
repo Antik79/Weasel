@@ -17,6 +17,11 @@ public interface ITerminalService
     System.IO.StreamReader? GetTerminalOutputReader(string sessionId);
     
     System.IO.StreamWriter? GetTerminalInputWriter(string sessionId);
+    
+    /// <summary>
+    /// Gets all currently active terminal sessions.
+    /// </summary>
+    IReadOnlyList<TerminalSession> GetActiveSessions();
 }
 
 public record TerminalSession(

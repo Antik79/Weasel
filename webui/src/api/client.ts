@@ -61,7 +61,9 @@ export async function api<T>(
     if (isJson && text) {
       try {
         const errorData = JSON.parse(text);
-        const errorMessage = errorData.error || errorData.detail || errorData.message || `Request failed with ${response.status}`;
+        // Standardized ApiError format: { message: string, code?: string, details?: object }
+        // Fallback to old formats for backward compatibility during transition
+        const errorMessage = errorData.message || errorData.error || errorData.detail || `Request failed with ${response.status}`;
         throw new Error(errorMessage);
       } catch (parseError) {
         // If JSON parsing fails, use the text as error message
@@ -136,8 +138,22 @@ export function download(path: string) {
 }
 
 // System API functions
+import type { SystemMetrics, WeaselServicesStatus, TerminalSession as TerminalSessionType } from "../types";
+
 export async function getSystemVersion(): Promise<{ version: string; buildDate?: string }> {
   return api<{ version: string; buildDate?: string }>("/api/system/version");
+}
+
+export async function getSystemMetrics(): Promise<SystemMetrics> {
+  return api<SystemMetrics>("/api/system/metrics");
+}
+
+export async function getWeaselServicesStatus(): Promise<WeaselServicesStatus> {
+  return api<WeaselServicesStatus>("/api/system/weasel-status");
+}
+
+export async function getTerminalSessions(): Promise<TerminalSessionType[]> {
+  return api<TerminalSessionType[]>("/api/system/terminal/sessions");
 }
 
 // VNC API functions
@@ -202,6 +218,7 @@ export async function closeTerminal(id: string): Promise<void> {
 export interface UiPreferences {
   logPanelExpanded: Record<string, boolean>;
   language: string;
+  theme?: 'weasel' | 'dark' | 'light';
   screenshotsFolderPageSize: number;
   filesFolderPageSize: number;
   filesFilesPageSize: number;

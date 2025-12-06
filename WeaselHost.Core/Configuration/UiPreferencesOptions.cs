@@ -20,6 +20,12 @@ public class UiPreferencesOptions
     public string Language { get; set; } = "en";
 
     /// <summary>
+    /// Preferred theme name. Options: "weasel", "dark", "light"
+    /// Default: "weasel"
+    /// </summary>
+    public string? Theme { get; set; } = "weasel";
+
+    /// <summary>
     /// Number of items to display per page in Screenshots folder panel.
     /// Default: 50
     /// </summary>

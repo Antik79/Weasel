@@ -160,6 +160,15 @@ public sealed class TerminalService : ITerminalService, IDisposable
         return sessionInfo.StandardInput;
     }
 
+    public IReadOnlyList<TerminalSession> GetActiveSessions()
+    {
+        return _sessions.Values
+            .Where(s => !s.Process.HasExited)
+            .Select(s => s.Session)
+            .ToList()
+            .AsReadOnly();
+    }
+
     private Process CreateShellProcess(string shellType)
     {
         var process = new Process();

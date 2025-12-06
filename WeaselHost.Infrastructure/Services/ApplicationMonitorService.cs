@@ -10,65 +10,71 @@ using WeaselHost.Core.Configuration;
 
 namespace WeaselHost.Infrastructure.Services;
 
-public sealed class ApplicationMonitorService : IHostedService
+public sealed class ApplicationMonitorService : BackgroundMonitoringServiceBase<ApplicationMonitorService>
 {
-    private readonly IOptionsMonitor<WeaselHostOptions> _optionsMonitor;
-    private readonly ILogger<ApplicationMonitorService> _logger;
     private readonly IEmailService _emailService;
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastCheck = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastAlertSent = new();
     private long _lastProcessedEventRecordId = -1;
-    private CancellationTokenSource? _cancellationTokenSource;
-    private Task? _monitoringTask;
 
     public ApplicationMonitorService(
         IOptionsMonitor<WeaselHostOptions> optionsMonitor,
         ILogger<ApplicationMonitorService> logger,
         IEmailService emailService)
+        : base(optionsMonitor, logger)
     {
-        _optionsMonitor = optionsMonitor;
-        _logger = logger;
         _emailService = emailService;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken = default)
+    protected override async Task MonitorLoopAsync(CancellationToken cancellationToken)
     {
-        _cancellationTokenSource = new CancellationTokenSource();
-        _monitoringTask = Task.Run(() => MonitorLoopAsync(_cancellationTokenSource.Token), cancellationToken);
-        _logger.LogInformation("Application monitoring service started");
-        return Task.CompletedTask;
-    }
+        var lastStatusLog = DateTimeOffset.MinValue;
+        var isFirstRun = true;
 
-    public async Task StopAsync(CancellationToken cancellationToken = default)
-    {
-        _cancellationTokenSource?.Cancel();
-
-        if (_monitoringTask != null)
-        {
-            try
-            {
-                using var timeoutCts = new CancellationTokenSource(WeaselConstants.Timeouts.ServiceStopGracePeriod);
-                await _monitoringTask.WaitAsync(timeoutCts.Token);
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogWarning("Application monitoring task did not stop within timeout - abandoning");
-            }
-        }
-
-        _cancellationTokenSource?.Dispose();
-        _cancellationTokenSource = null;
-        _logger.LogInformation("Application monitoring stopped");
-    }
-
-    private async Task MonitorLoopAsync(CancellationToken cancellationToken)
-    {
         while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                await CheckApplicationsAsync(cancellationToken);
-                await CheckEventLogAsync(cancellationToken);
+                var options = OptionsMonitor.CurrentValue.ApplicationMonitor;
+
+                // Log initial status on first run
+                if (isFirstRun)
+                {
+                    var appCount = options.Applications.Count(a => a.Enabled);
+                    if (options.Enabled)
+                    {
+                        Logger.LogInformation("ApplicationMonitor: Service started, monitoring {AppCount} application(s)", appCount);
+                    }
+                    else
+                    {
+                        Logger.LogInformation("ApplicationMonitor: Service started but monitoring is disabled");
+                    }
+                    isFirstRun = false;
+                }
+
+                if (options.Enabled)
+                {
+                    await CheckApplicationsAsync(cancellationToken);
+                    await CheckEventLogAsync(cancellationToken);
+
+                    // Log periodic status (every 5 minutes when enabled)
+                    if (DateTimeOffset.UtcNow - lastStatusLog > TimeSpan.FromMinutes(5))
+                    {
+                        var appCount = options.Applications.Count(a => a.Enabled);
+                        Logger.LogInformation("ApplicationMonitor: Checked {AppCount} applications, all running", appCount);
+                        lastStatusLog = DateTimeOffset.UtcNow;
+                    }
+                }
+                else
+                {
+                    // Log when disabled (less frequently - every 10 minutes)
+                    if (DateTimeOffset.UtcNow - lastStatusLog > TimeSpan.FromMinutes(10))
+                    {
+                        Logger.LogInformation("ApplicationMonitor: Service is disabled");
+                        lastStatusLog = DateTimeOffset.UtcNow;
+                    }
+                }
+
                 await Task.Delay(WeaselConstants.Intervals.AppMonitorLoop, cancellationToken);
             }
             catch (OperationCanceledException)
@@ -77,7 +83,7 @@ public sealed class ApplicationMonitorService : IHostedService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in application monitoring loop");
+                Logger.LogError(ex, "Error in application monitoring loop");
                 await Task.Delay(WeaselConstants.Intervals.ErrorRetryDelay, cancellationToken);
             }
         }
@@ -85,7 +91,7 @@ public sealed class ApplicationMonitorService : IHostedService
 
     private async Task CheckApplicationsAsync(CancellationToken cancellationToken)
     {
-        var options = _optionsMonitor.CurrentValue.ApplicationMonitor;
+        var options = OptionsMonitor.CurrentValue.ApplicationMonitor;
         if (!options.Enabled || options.Applications.Count == 0)
         {
             return;
@@ -114,7 +120,7 @@ public sealed class ApplicationMonitorService : IHostedService
             {
                 if (!File.Exists(app.ExecutablePath))
                 {
-                    _logger.LogWarning("Monitored application executable not found: {Path}", app.ExecutablePath);
+                    Logger.LogWarning("Monitored application executable not found: {Path}", app.ExecutablePath);
                     continue;
                 }
 
@@ -157,12 +163,12 @@ public sealed class ApplicationMonitorService : IHostedService
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error checking if process {Name} is running", processName);
+                    Logger.LogWarning(ex, "Error checking if process {Name} is running", processName);
                 }
 
                 if (!isRunning)
                 {
-                    _logger.LogInformation("Application {Name} ({Path}) is not running, will restart after {Delay}s delay", 
+                    Logger.LogInformation("Application {Name} ({Path}) is not running, will restart after {Delay}s delay", 
                         app.Name, app.ExecutablePath, app.RestartDelaySeconds);
                     
                     // Wait for restart delay
@@ -208,7 +214,7 @@ public sealed class ApplicationMonitorService : IHostedService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error checking application {Name}", app.Name);
+                Logger.LogError(ex, "Error checking application {Name}", app.Name);
             }
         }
     }
@@ -229,22 +235,22 @@ public sealed class ApplicationMonitorService : IHostedService
                 startInfo.Arguments = app.Arguments;
             }
 
-            _logger.LogInformation("Attempting to start application {Name} from {Path} with working directory {WorkingDir}", 
+            Logger.LogInformation("Attempting to start application {Name} from {Path} with working directory {WorkingDir}", 
                 app.Name, app.ExecutablePath, startInfo.WorkingDirectory);
             var process = Process.Start(startInfo);
             if (process != null)
             {
-                _logger.LogInformation("Successfully restarted application {Name} (PID: {Pid})", app.Name, process.Id);
+                Logger.LogInformation("Successfully restarted application {Name} (PID: {Pid})", app.Name, process.Id);
             }
             else
             {
-                _logger.LogWarning("Process.Start returned null for application {Name} at {Path}", app.Name, app.ExecutablePath);
+                Logger.LogWarning("Process.Start returned null for application {Name} at {Path}", app.Name, app.ExecutablePath);
                 throw new InvalidOperationException($"Failed to start process: Process.Start returned null");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to restart application {Name}", app.Name);
+            Logger.LogError(ex, "Failed to restart application {Name}", app.Name);
             
             // Send alert email
             await SendRestartFailureAlertAsync(app, ex, recipients, cancellationToken);
@@ -253,7 +259,7 @@ public sealed class ApplicationMonitorService : IHostedService
 
     private async Task CheckEventLogAsync(CancellationToken cancellationToken)
     {
-        var options = _optionsMonitor.CurrentValue.ApplicationMonitor;
+        var options = OptionsMonitor.CurrentValue.ApplicationMonitor;
         if (!options.Enabled || options.Applications.Count == 0)
         {
             return;
@@ -295,7 +301,7 @@ public sealed class ApplicationMonitorService : IHostedService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error checking event log for crashes");
+            Logger.LogError(ex, "Error checking event log for crashes");
         }
     }
 
@@ -303,7 +309,7 @@ public sealed class ApplicationMonitorService : IHostedService
     {
         try
         {
-            var smtp = _optionsMonitor.CurrentValue.Smtp;
+            var smtp = OptionsMonitor.CurrentValue.Smtp;
             if (string.IsNullOrWhiteSpace(smtp.Host) || recipients.Count == 0)
             {
                 return;
@@ -325,11 +331,11 @@ public sealed class ApplicationMonitorService : IHostedService
                 new List<string>(recipients),
                 cancellationToken);
 
-            _logger.LogInformation("Sent restart failure alert for {Name}", app.Name);
+            Logger.LogInformation("Sent restart failure alert for {Name}", app.Name);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send restart failure alert for {Name}", app.Name);
+            Logger.LogError(ex, "Failed to send restart failure alert for {Name}", app.Name);
         }
     }
 
@@ -337,7 +343,7 @@ public sealed class ApplicationMonitorService : IHostedService
     {
         try
         {
-            var smtp = _optionsMonitor.CurrentValue.Smtp;
+            var smtp = OptionsMonitor.CurrentValue.Smtp;
             if (string.IsNullOrWhiteSpace(smtp.Host) || recipients.Count == 0)
             {
                 return;
@@ -364,11 +370,11 @@ public sealed class ApplicationMonitorService : IHostedService
                 new List<string>(recipients),
                 cancellationToken);
 
-            _logger.LogInformation("Sent crash alert for {Name}", app.Name);
+            Logger.LogInformation("Sent crash alert for {Name}", app.Name);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send crash alert for {Name}", app.Name);
+            Logger.LogError(ex, "Failed to send crash alert for {Name}", app.Name);
         }
     }
 
@@ -379,7 +385,7 @@ public sealed class ApplicationMonitorService : IHostedService
             return options.NotificationRecipients;
         }
 
-        var fallback = _optionsMonitor.CurrentValue.Smtp.FromAddress;
+        var fallback = OptionsMonitor.CurrentValue.Smtp.FromAddress;
         if (!string.IsNullOrWhiteSpace(fallback))
         {
             return new[] { fallback };
@@ -398,7 +404,9 @@ public sealed class ApplicationMonitorService : IHostedService
 
         if (_lastProcessedEventRecordId < 0)
         {
-            _lastProcessedEventRecordId = eventLog.Entries[eventLog.Entries.Count - 1].Index;
+            _lastProcessedEventRecordId = eventLog.Entries.Count > 0 
+                ? eventLog.Entries[eventLog.Entries.Count - 1].Index 
+                : -1;
             return Array.Empty<System.Diagnostics.EventLogEntry>();
         }
 

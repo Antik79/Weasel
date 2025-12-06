@@ -318,3 +318,70 @@ export interface ResizeTerminalRequest {
   cols: number;
 }
 
+// System Metrics (historical data for charts)
+export interface SystemMetrics {
+  current: SystemStatus;
+  cpuHistory: MetricPoint[];
+  memoryHistory: MetricPoint[];
+}
+
+export interface MetricPoint {
+  value: number;
+  timestamp: string;
+}
+
+// Weasel Services Status (aggregated dashboard data)
+export interface WeaselServicesStatus {
+  vnc: VncServiceStatus;
+  storageMonitor: StorageMonitorStatus;
+  applicationMonitor: ApplicationMonitorStatusInfo;
+  screenshot: ScreenshotServiceStatus;
+  terminal: TerminalServiceStatus;
+  recordings: VncRecordingsStatus;
+}
+
+export interface VncServiceStatus {
+  isRunning: boolean;
+  port: number;
+  connectionCount: number;
+  allowRemote: boolean;
+  activeRecordingSessions: number;
+  autoStart: boolean;
+  enabled: boolean;
+}
+
+export interface StorageMonitorStatus {
+  enabled: boolean;
+  isRunning: boolean;
+  monitoredDrivesCount: number;
+  monitoredFoldersCount: number;
+  activeAlertsCount: number;
+  lastCheck: string | null;
+}
+
+export interface ApplicationMonitorStatusInfo {
+  enabled: boolean;
+  totalApplicationsCount: number;
+  enabledApplicationsCount: number;
+  currentlyRunningCount: number;
+  recentRestartsCount: number;
+}
+
+export interface ScreenshotServiceStatus {
+  intervalCaptureEnabled: boolean;
+  intervalSeconds: number;
+  recentScreenshotsCount: number;
+  totalScreenshotsCount: number;
+}
+
+export interface TerminalServiceStatus {
+  activeSessionsCount: number;
+}
+
+export interface VncRecordingsStatus {
+  totalRecordingsCount: number;
+  recentRecordingsCount: number;
+  totalStorageBytes: number;
+  activeSessionsCount: number;
+}
+

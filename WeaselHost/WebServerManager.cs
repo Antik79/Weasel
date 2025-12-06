@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -90,11 +91,14 @@ public sealed class WebServerManager : IAsyncDisposable
 
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
+        var totalStopwatch = Stopwatch.StartNew();
+        
         await _gate.WaitAsync(cancellationToken);
         try
         {
             if (_webApplication is null)
             {
+                _logger.LogInformation("SHUTDOWN TIMING: WebServerManager.StopAsync - web application already null");
                 return;
             }
 
@@ -106,20 +110,28 @@ public sealed class WebServerManager : IAsyncDisposable
             try
             {
                 // Stop the web application (this will stop all hosted services)
+                var stopAppStopwatch = Stopwatch.StartNew();
                 await _webApplication.StopAsync(cancellationToken);
+                stopAppStopwatch.Stop();
+                _logger.LogInformation("SHUTDOWN TIMING: WebApplication.StopAsync completed in {ElapsedMs}ms", stopAppStopwatch.ElapsedMilliseconds);
                 
                 // Wait for the lifetime task to complete (all hosted services should stop)
                 if (_lifetimeTask is not null)
                 {
+                    var lifetimeStopwatch = Stopwatch.StartNew();
+                    // Reduced timeout from 10s to 3s to match service stop grace period
                     using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(10));
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(3));
                     try
                     {
                         await _lifetimeTask.WaitAsync(timeoutCts.Token);
+                        lifetimeStopwatch.Stop();
+                        _logger.LogInformation("SHUTDOWN TIMING: Lifetime task completed in {ElapsedMs}ms", lifetimeStopwatch.ElapsedMilliseconds);
                     }
                     catch (OperationCanceledException)
                     {
-                        _logger.LogWarning("Lifetime task did not complete within timeout");
+                        lifetimeStopwatch.Stop();
+                        _logger.LogWarning("SHUTDOWN TIMING: Lifetime task did not complete within 3000ms timeout (waited {ElapsedMs}ms)", lifetimeStopwatch.ElapsedMilliseconds);
                     }
                 }
             }
@@ -132,7 +144,10 @@ public sealed class WebServerManager : IAsyncDisposable
                 // Dispose the web application (this will dispose all services)
                 try
                 {
+                    var disposeStopwatch = Stopwatch.StartNew();
                     await _webApplication.DisposeAsync();
+                    disposeStopwatch.Stop();
+                    _logger.LogInformation("SHUTDOWN TIMING: WebApplication.DisposeAsync completed in {ElapsedMs}ms", disposeStopwatch.ElapsedMilliseconds);
                 }
                 catch (Exception ex)
                 {
@@ -145,7 +160,8 @@ public sealed class WebServerManager : IAsyncDisposable
                 _cts = null;
             }
             
-            _logger.LogInformation("Embedded web server stopped.");
+            totalStopwatch.Stop();
+            _logger.LogInformation("SHUTDOWN TIMING: WebServerManager.StopAsync total time {ElapsedMs}ms", totalStopwatch.ElapsedMilliseconds);
         }
         finally
         {

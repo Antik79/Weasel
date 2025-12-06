@@ -58,7 +58,7 @@ export interface Theme {
   };
 }
 
-export const defaultTheme: Theme = {
+export const weaselTheme: Theme = {
   colors: {
     background: {
       primary: '#030712',
@@ -111,5 +111,98 @@ export const defaultTheme: Theme = {
     lg: '0 30px 60px rgba(2, 6, 23, 0.7)',
     xl: '0 40px 80px rgba(2, 6, 23, 0.9)',
   },
+};
+
+export const darkTheme: Theme = {
+  colors: {
+    background: {
+      primary: '#000000',
+      secondary: '#0a0a0a',
+      tertiary: '#1a1a1a',
+      panel: 'rgba(10, 10, 10, 0.8)',
+      modal: '#0a0a0a',
+      submenu: 'rgba(10, 10, 10, 0.5)',
+    },
+    text: {
+      primary: '#ffffff',
+      secondary: '#e5e5e5',
+      tertiary: '#d4d4d4',
+      muted: '#a3a3a3',
+    },
+    border: {
+      default: 'rgba(163, 163, 163, 0.3)',
+      hover: 'rgba(163, 163, 163, 0.4)',
+      active: '#60a5fa',
+      muted: 'rgba(163, 163, 163, 0.12)',
+    },
+    accent: {
+      primary: '#60a5fa',
+      hover: '#3b82f6',
+      active: '#2563eb',
+    },
+    state: {
+      success: '#34d399',
+      warning: '#fbbf24',
+      error: '#f87171',
+      info: '#60a5fa',
+    },
+  },
+  spacing: weaselTheme.spacing,
+  borderRadius: weaselTheme.borderRadius,
+  shadows: weaselTheme.shadows,
+};
+
+export const lightTheme: Theme = {
+  colors: {
+    background: {
+      primary: '#ffffff',
+      secondary: '#f8f9fa',
+      tertiary: '#e9ecef',
+      panel: 'rgba(248, 249, 250, 0.8)',
+      modal: '#ffffff',
+      submenu: 'rgba(248, 249, 250, 0.5)',
+    },
+    text: {
+      primary: '#1a1a1a',
+      secondary: '#4a4a4a',
+      tertiary: '#6a6a6a',
+      muted: '#9a9a9a',
+    },
+    border: {
+      default: 'rgba(154, 154, 154, 0.3)',
+      hover: 'rgba(154, 154, 154, 0.4)',
+      active: '#3b82f6',
+      muted: 'rgba(154, 154, 154, 0.12)',
+    },
+    accent: {
+      primary: '#3b82f6',
+      hover: '#2563eb',
+      active: '#1d4ed8',
+    },
+    state: {
+      success: '#10b981',
+      warning: '#f59e0b',
+      error: '#ef4444',
+      info: '#3b82f6',
+    },
+  },
+  spacing: weaselTheme.spacing,
+  borderRadius: weaselTheme.borderRadius,
+  shadows: {
+    sm: '0 1px 3px rgba(0, 0, 0, 0.12)',
+    md: '0 4px 6px rgba(0, 0, 0, 0.1)',
+    lg: '0 10px 15px rgba(0, 0, 0, 0.1)',
+    xl: '0 20px 25px rgba(0, 0, 0, 0.1)',
+  },
+};
+
+export const defaultTheme = weaselTheme;
+
+export type ThemeName = 'weasel' | 'dark' | 'light';
+
+export const themes: Record<ThemeName, Theme> = {
+  weasel: weaselTheme,
+  dark: darkTheme,
+  light: lightTheme,
 };
 

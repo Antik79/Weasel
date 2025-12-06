@@ -32,19 +32,34 @@ import {
   FileSpreadsheet,
   CheckSquare,
   Square,
-  Minus
+  Minus,
+  Monitor
 } from "lucide-react";
 
 // Lazy load Monaco Editor - only loads when editing a file
 const Editor = lazy(() => import("@monaco-editor/react"));
 import { api, download, upload, getFileExplorerSettings } from "../api/client";
-import { FileSystemItem } from "../types";
+import { FileSystemItem, ApplicationMonitorConfig, MonitoredApplication } from "../types";
 import { formatBytes, formatDate } from "../utils/format";
 import ContextMenu from "../components/ContextMenu";
 import { useTranslation } from "../i18n/i18n";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { showToast } from "../App";
 import Pagination from "../components/Pagination";
+import { LogPanel } from "../components/LogPanel";
+
+// UUID generator with polyfill for environments without crypto.randomUUID
+const generateUUID = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback UUID v4 implementation
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 const fetcher = async (path: string) => {
   const url = new URL("/api/fs", window.location.origin);
@@ -1073,6 +1088,62 @@ export default function FileExplorer() {
     };
   }, [isResizing, handleMouseMove, stopResizing]);
 
+  const addToApplicationMonitor = useCallback(async (item: FileSystemItem) => {
+    if (!item.fullPath) {
+      showToast(t("files.addToAppMonitorNoPath", { name: item.name }), "error");
+      return;
+    }
+
+    try {
+      // Fetch current config
+      const currentConfig = await api<ApplicationMonitorConfig>("/api/application-monitor/config");
+      
+      // Check if already exists
+      const existingApp = currentConfig.applications?.find(
+        app => app.executablePath?.toLowerCase() === item.fullPath.toLowerCase()
+      );
+      
+      if (existingApp) {
+        showToast(t("files.addToAppMonitorAlreadyExists", { name: item.name }), "error");
+        return;
+      }
+
+      // Get parent directory for working directory
+      const workingDirectory = parentOf(item.fullPath);
+
+      // Add new application
+      const newApp: MonitoredApplication = {
+        id: generateUUID(),
+        name: item.name.replace(/\.[^/.]+$/, ""), // Remove file extension
+        executablePath: item.fullPath,
+        arguments: null,
+        workingDirectory: workingDirectory || null,
+        enabled: true,
+        checkIntervalSeconds: 60,
+        restartDelaySeconds: 5,
+        logPath: null,
+        eventLogSource: null
+      };
+
+      const updatedConfig: ApplicationMonitorConfig = {
+        ...currentConfig,
+        applications: [...(currentConfig.applications || []), newApp]
+      };
+
+      // Save config
+      await api("/api/application-monitor/config", {
+        method: "PUT",
+        body: JSON.stringify(updatedConfig)
+      });
+
+      showToast(t("files.addToAppMonitorSuccess", { name: item.name }), "success");
+    } catch (err) {
+      console.error("Failed to add file to Application Monitor:", err);
+      const message = err instanceof Error ? err.message : String(err);
+      showToast(t("files.addToAppMonitorError", { name: item.name, message }), "error");
+    }
+  }, [t]);
+
   const handleContextMenu = (e: React.MouseEvent, item: FileSystemItem) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1130,42 +1201,7 @@ export default function FileExplorer() {
       </div>
 
       <div className="space-y-3">
-        {/* Toolbar - Action buttons only */}
-        <div className="flex items-center justify-end gap-2 flex-wrap">
-            {selectedItems.size > 0 && (
-              <>
-                <button className="btn-outline" onClick={bulkDownload}>
-                  <Download size={16} />
-                </button>
-                <button className="btn-outline" onClick={bulkDelete}>
-                  <Trash2 size={16} />
-                </button>
-                <button className="btn-outline" onClick={bulkZip}>
-                  <Archive size={16} />
-                </button>
-                <button className="btn-outline" onClick={copyToClipboard}>
-                  <Copy size={16} />
-                </button>
-                <button className="btn-outline" onClick={cutToClipboard}>
-                  <Scissors size={16} />
-                </button>
-                <button className="btn-outline" onClick={clearSelection}>
-                  <X size={16} />
-                </button>
-              </>
-            )}
-            {clipboard && (
-              <button
-                className="btn-outline bg-sky-900/30 border-sky-500"
-                onClick={pasteFromClipboard}
-                disabled={!currentPath}
-              >
-                <Clipboard size={16} />
-              </button>
-            )}
-        </div>
-
-        {/* Breadcrumbs Line - Moved below toolbar */}
+        {/* Breadcrumbs Line */}
         <div className="flex items-center gap-2 bg-slate-900/50 p-2 rounded border border-slate-800 overflow-hidden">
           <span className="text-slate-500 flex-shrink-0">{t("common.path")}:</span>
           <div className="flex items-center gap-1 flex-1 min-w-0 overflow-hidden">
@@ -1218,6 +1254,8 @@ export default function FileExplorer() {
             <div className="relative">
               <input
                 type="text"
+                id="file-search-input"
+                name="file-search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t("common.search")}
@@ -1236,6 +1274,45 @@ export default function FileExplorer() {
                 </button>
               )}
             </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Toolbar - Action buttons - appears when files are selected */}
+            {selectedItems.size > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <button className="btn-outline" onClick={bulkDownload} title={t("common.download")}>
+                  <Download size={16} />
+                </button>
+                <button className="btn-outline" onClick={bulkDelete} title={t("common.delete")}>
+                  <Trash2 size={16} />
+                </button>
+                <button className="btn-outline" onClick={bulkZip} title={t("common.zip")}>
+                  <Archive size={16} />
+                </button>
+                <button className="btn-outline" onClick={copyToClipboard} title={t("common.copy")}>
+                  <Copy size={16} />
+                </button>
+                <button className="btn-outline" onClick={cutToClipboard} title={t("common.cut")}>
+                  <Scissors size={16} />
+                </button>
+                <button className="btn-outline" onClick={selectAll} title={t("common.selectAll")}>
+                  <CheckSquare size={16} />
+                </button>
+                <button className="btn-outline" onClick={clearSelection} title={t("common.clearSelection")}>
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+            {clipboard && (
+              <button
+                className="btn-outline bg-sky-900/30 border-sky-500"
+                onClick={pasteFromClipboard}
+                disabled={!currentPath}
+                title={t("common.paste")}
+              >
+                <Clipboard size={16} />
+              </button>
+            )}
           </div>
 
           <div className="flex gap-2 flex-wrap justify-end">
@@ -1665,6 +1742,7 @@ export default function FileExplorer() {
         const isTailable = !item.isDirectory && canTailFile(item.fullPath);
         const isImage = category === "image";
         const isZip = item.name.toLowerCase().endsWith(".zip");
+        const isExecutable = category === "executable";
 
         return (
           <ContextMenu
@@ -1672,6 +1750,14 @@ export default function FileExplorer() {
             y={contextMenu.y}
             onClose={() => setContextMenu(null)}
             items={[
+              ...((directories.length > 0 || files.length > 0) ? [{
+                label: t("common.selectAll"),
+                icon: <CheckSquare size={14} />,
+                onClick: () => {
+                  selectAll();
+                  setContextMenu(null);
+                }
+              }] : []),
               ...(item.isDirectory ? [{
                 label: "Open",
                 icon: <Folder size={14} />,
@@ -1701,6 +1787,11 @@ export default function FileExplorer() {
                 label: "Tail",
                 icon: <Eye size={14} />,
                 onClick: () => startTailing(item.fullPath)
+              }] : []),
+              ...(isExecutable ? [{
+                label: t("files.addToAppMonitor"),
+                icon: <Monitor size={14} />,
+                onClick: () => addToApplicationMonitor(item)
               }] : []),
               {
                 label: "Copy",
@@ -1870,6 +1961,9 @@ export default function FileExplorer() {
         className="hidden"
         onChange={uploadFiles}
       />
+
+      {/* Log Panel */}
+      <LogPanel name="Files" title={t("files.logTitle")} subfolder="Files" />
     </section>
   );
 }

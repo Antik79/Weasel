@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import useSWR from "swr";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api, getUiPreferences, saveUiPreferences } from "../api/client";
+import { useTranslation } from "../i18n/i18n";
 import type { LogsResponse, LogFileInfo } from "../types";
 
 interface LogPanelProps {
@@ -11,6 +12,7 @@ interface LogPanelProps {
 }
 
 export function LogPanel({ name, title, subfolder }: LogPanelProps) {
+  const { t } = useTranslation();
   const [isTailing, setIsTailing] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false); // Default: collapsed
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
@@ -84,14 +86,14 @@ export function LogPanel({ name, title, subfolder }: LogPanelProps) {
   }, []);
 
   // Fetch log files for this component
-  const { data: logFiles } = useSWR(
+  const { data: logFiles, error: logFilesError } = useSWR(
     isExpanded ? `${subfolder}-log-files` : null,
     () => {
       const url = new URL("/api/logs", window.location.origin);
       url.searchParams.set("subfolder", subfolder);
       return api<LogsResponse>(url.toString());
     },
-    { refreshInterval: 10000 }
+    { refreshInterval: 10000, shouldRetryOnError: false }
   );
 
   const latestLogFile = useMemo(() => {
@@ -99,7 +101,7 @@ export function LogPanel({ name, title, subfolder }: LogPanelProps) {
     return logFiles.files.sort((a: LogFileInfo, b: LogFileInfo) => b.name.localeCompare(a.name))[0];
   }, [logFiles]);
 
-  const { data: logContent, isLoading: logLoading } = useSWR(
+  const { data: logContent, isLoading: logLoading, error: logContentError } = useSWR(
     (isExpanded && latestLogFile) ? [`${subfolder}-log`, latestLogFile.name] : null,
     ([, fileName]: [string, string]) => {
       const url = new URL(`/api/logs/${encodeURIComponent(fileName)}`, window.location.origin);
@@ -108,7 +110,8 @@ export function LogPanel({ name, title, subfolder }: LogPanelProps) {
     },
     {
       revalidateOnFocus: true,
-      refreshInterval: isTailing ? 2000 : undefined // Auto-refresh only if tailing is enabled
+      refreshInterval: isTailing ? 2000 : undefined, // Auto-refresh only if tailing is enabled
+      shouldRetryOnError: false
     }
   );
 
@@ -148,9 +151,23 @@ export function LogPanel({ name, title, subfolder }: LogPanelProps) {
 
       {isExpanded && (
         <div ref={logContainerRef} className="bg-slate-950 rounded border border-slate-800 p-3 max-h-96 overflow-y-auto font-mono text-xs">
-          {logLoading && <p className="text-slate-400">Loading log...</p>}
-          {!logLoading && !logContent && <p className="text-slate-400">No log content available</p>}
-          {!logLoading && logContent && (
+          {logLoading && <p className="text-slate-400">{t("logs.loadingLog")}</p>}
+          {!logLoading && logFilesError && (
+            <p className="text-red-400">{t("logs.errorLoadingFiles", { message: logFilesError instanceof Error ? logFilesError.message : 'Unknown error' })}</p>
+          )}
+          {!logLoading && !logFilesError && !logFiles?.files?.length && (
+            <p className="text-slate-400">{t("logs.noLogFiles")}</p>
+          )}
+          {!logLoading && !logFilesError && logFiles?.files?.length > 0 && !latestLogFile && (
+            <p className="text-slate-400">{t("logs.noLogFilesAvailable")}</p>
+          )}
+          {!logLoading && !logFilesError && latestLogFile && logContentError && (
+            <p className="text-red-400">{t("logs.errorLoadingContent", { message: logContentError instanceof Error ? logContentError.message : 'Unknown error' })}</p>
+          )}
+          {!logLoading && !logFilesError && latestLogFile && !logContentError && !logContent && (
+            <p className="text-slate-400">{t("logs.logFileEmpty")}</p>
+          )}
+          {!logLoading && !logFilesError && latestLogFile && !logContentError && logContent && (
             <pre className="text-slate-300 whitespace-pre-wrap break-all">
               {logContent}
             </pre>

@@ -1,11 +1,12 @@
 using System.Text;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using WeaselHost.Core.Configuration;
 
 namespace WeaselHost.Web.Logging;
 
-internal sealed class FileLoggerProvider : ILoggerProvider
+public sealed class FileLoggerProvider : ILoggerProvider
 {
     private readonly IOptionsMonitor<WeaselHostOptions> _optionsMonitor;
     private readonly object _lock = new();
@@ -487,6 +488,22 @@ internal sealed class FileLoggerProvider : ILoggerProvider
         public void Dispose()
         {
         }
+    }
+}
+
+/// <summary>
+/// Extension methods for adding the FileLoggerProvider.
+/// </summary>
+public static class FileLoggerExtensions
+{
+    /// <summary>
+    /// Adds the Weasel file logger to the logging builder.
+    /// </summary>
+    public static ILoggingBuilder AddWeaselFileLogger(this ILoggingBuilder builder, IServiceProvider serviceProvider)
+    {
+        var optionsMonitor = serviceProvider.GetRequiredService<IOptionsMonitor<WeaselHostOptions>>();
+        builder.AddProvider(new FileLoggerProvider(optionsMonitor));
+        return builder;
     }
 }
 

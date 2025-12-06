@@ -2,8 +2,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using WeaselHost.Core.Configuration;
 using WeaselHost.Infrastructure;
+using WeaselHost.Web.Logging;
 
 namespace WeaselHost;
 
@@ -14,6 +16,13 @@ internal static class Program
     {
         ApplicationConfiguration.Initialize();
         using var host = BuildHost();
+        
+        // Add file logging provider after host is built so we can get the options monitor
+        var optionsMonitor = host.Services.GetRequiredService<IOptionsMonitor<WeaselHostOptions>>();
+        var fileLoggerProvider = new FileLoggerProvider(optionsMonitor);
+        var loggerFactory = host.Services.GetRequiredService<ILoggerFactory>();
+        loggerFactory.AddProvider(fileLoggerProvider);
+        
         host.Start();
 
         var webServerManager = host.Services.GetRequiredService<WebServerManager>();

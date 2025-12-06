@@ -86,7 +86,8 @@ export const useTranslation = () => {
     }, [initialLoadComplete]);
 
     const t = useCallback((key: string, replacements?: ReplacementMap) => {
-        let value = translations[key] || key;
+        // First try current language, then fall back to English, then use key as last resort
+        let value = translations[key] || defaultTranslations[key] || key;
 
         if (replacements) {
             for (const [replacementKey, replacementValue] of Object.entries(replacements)) {
