@@ -50,7 +50,8 @@ public static class ResultExtensions
         {
             return Results.Unauthorized();
         }
-        return Results.Unauthorized();
+        var error = new ApiError(message, "Unauthorized");
+        return Results.Json(error, statusCode: StatusCodes.Status401Unauthorized);
     }
 
     /// <summary>
@@ -62,7 +63,8 @@ public static class ResultExtensions
         {
             return Results.Forbid();
         }
-        return Results.Forbid();
+        var error = new ApiError(message, "Forbidden");
+        return Results.Json(error, statusCode: StatusCodes.Status403Forbidden);
     }
 
     /// <summary>
@@ -74,4 +76,3 @@ public static class ResultExtensions
         return Results.Json(error, statusCode: StatusCodes.Status408RequestTimeout);
     }
 }
-
